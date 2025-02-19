@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 10px;
+        color: #444;
+      }
+      h3 {
+        color: #1a73e8;
+        margin-bottom: 15px;
+      }
+      .container {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+      }
+      .model-selector {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      select {
+        padding: 8px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+      }
+      .ai-comment-counter {
+        background: #e8f0fe;
+        border-radius: 4px;
+        padding: 10px;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .counter-badge {
+        background: #1a73e8;
+        color: white;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+      }
+      button {
+        background-color: #1a73e8;
+        color: white;
+        border: none;
+        padding: 10px 16px;
+        font-size: 14px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+      }
+      button:hover {
+        background-color: #1765cc;
+      }
+      button:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+      .progress-container {
+        margin-top: 15px;
+      }
+      .progress-item {
+        padding: 8px;
+        border-bottom: 1px solid #eee;
+        font-size: 13px;
+      }
+      .current-processing {
+        background: #fef7e0;
+        border-radius: 4px;
+        padding: 12px;
+        margin-bottom: 10px;
+      }
+      .current-processing h4 {
+        margin: 0 0 8px 0;
+        color: #b06000;
+      }
+      .text-block {
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 8px;
+        margin: 4px 0;
+        white-space: pre-wrap;
+        font-family: monospace;
+        font-size: 12px;
+      }
+      .revision-item {
+        background: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 12px;
+        margin-bottom: 8px;
+      }
+      .revision-item h4 {
+        margin: 0 0 8px 0;
+        color: #188038;
+      }
+      .button-group {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .accept-button {
+        background-color: #188038;
+      }
+      .accept-button:hover {
+        background-color: #137333;
+      }
+      .reject-button {
+        background-color: #d93025;
+      }
+      .reject-button:hover {
+        background-color: #c5221f;
+      }
+      .status {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 11px;
+        margin-left: 5px;
+      }
+      .status-pending {
+        background: #f1f3f4;
+        color: #444;
+      }
+      .status-processing {
+        background: #fef7e0;
+        color: #b06000;
+      }
+      .status-completed {
+        background: #e6f4ea;
+        color: #137333;
+      }
+      .status-error {
+        background: #fce8e6;
+        color: #c5221f;
+      }
+      .refresh-models {
+        font-size: 12px;
+        color: #1a73e8;
+        text-decoration: underline;
+        cursor: pointer;
+        margin-left: auto;
+        border: none;
+        background: none;
+        padding: 0;
+      }
+      .cancel-button {
+        background-color: #5f6368;
+      }
+      .cancel-button:hover {
+        background-color: #494c50;
+      }
+      .processing-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 16px;
+        z-index: 1000;
+      }
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #1a73e8;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      .diff-view {
+        background: #f8f9fa;
+        border-radius: 4px;
+        padding: 8px;
+        margin: 4px 0;
+        font-family: monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+      .diff-removed {
+        background: #fce8e6;
+        text-decoration: line-through;
+        color: #c5221f;
+      }
+      .diff-added {
+        background: #e6f4ea;
+        color: #137333;
+      }
+    </style>
+  </head>
+  <body>
+    <h3>AI Editor</h3>
+    <div class="container">
+      <div class="model-selector">
+        <div style="display: flex; align-items: center;">
+          <label for="modelSelect">Select Model:</label>
+          <button class="refresh-models" id="refreshModels">Refresh</button>
+        </div>
+        <select id="modelSelect">
+          <option value="">Loading models...</option>
+        </select>
+      </div>
+      
+      <div class="ai-comment-counter">
+        <span>Unprocessed AI Comments:</span>
+        <span class="counter-badge" id="commentCount">0</span>
+      </div>
+      
+      <button id="processButton" disabled>Generate Suggestions</button>
+      
+      <div class="progress-container">
+        <div id="currentProcessing"></div>
+        <div id="revisionsList"></div>
+        <div id="progress"></div>
+      </div>
+    </div>
+
+    <div id="processingOverlay" class="processing-overlay" style="display: none;">
+      <div class="spinner"></div>
+      <div id="processingStatus">Processing...</div>
+      <button class="cancel-button" onclick="cancelProcessing()">Cancel</button>
+    </div>
+
+    <script>
+      // Global state
+      let commentsList = [];
+      let selectedModel = '';
+      let isProcessing = false;
+      let fileId = '';
+      let currentComment = null;
+      let isCancelled = false;
+      let processingTimeout = null;
+      let isApiCallInProgress = false;
+      
+      // Handle page visibility changes
+      document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+          // Save state before page becomes hidden
+          try {
+            const state = {
+              selectedModel,
+              isProcessing,
+              currentComment,
+              commentsList
+            };
+            sessionStorage.setItem('aiedit_state', JSON.stringify(state));
+          } catch (e) {
+            console.error('Error saving state:', e);
+          }
+        } else {
+          // Page is visible again, check if we need to restore state
+          try {
+            const savedState = sessionStorage.getItem('aiedit_state');
+            if (savedState) {
+              const state = JSON.parse(savedState);
+              
+              // Restore only safe state
+              selectedModel = state.selectedModel || '';
+              commentsList = state.commentsList || [];
+              
+              // Reset processing state for safety
+              isProcessing = false;
+              currentComment = null;
+              isCancelled = false;
+              isApiCallInProgress = false;
+              
+              // Update UI
+              updateProcessButtonState();
+              displayCurrentProcessing(null);
+              hideProcessingOverlay();
+              
+              // Refresh data
+              fetchComments();
+              if (selectedModel) {
+                document.getElementById('modelSelect').value = selectedModel;
+              }
+            }
+          } catch (e) {
+            console.error('Error restoring state:', e);
+            // On error, do a clean reload
+            cleanup();
+            initSidebar();
+          }
+        }
+      });
+      
+      // Handle beforeunload
+      window.addEventListener('beforeunload', function(e) {
+        if (isProcessing) {
+          // Warn user if processing is ongoing
+          e.preventDefault();
+          e.returnValue = 'Changes you made may not be saved. Are you sure you want to leave?';
+          return e.returnValue;
+        }
+      });
+      
+      /**
+       * Clean up function for page unload
+       */
+      function cleanup() {
+        if (processingTimeout) {
+          clearTimeout(processingTimeout);
+          processingTimeout = null;
+        }
+        
+        // Clear state
+        isCancelled = true;
+        isProcessing = false;
+        isApiCallInProgress = false;
+        currentComment = null;
+        
+        // Clear storage
+        try {
+          sessionStorage.removeItem('aiedit_state');
+        } catch (e) {
+          console.error('Error clearing state:', e);
+        }
+        
+        // Reset UI
+        displayCurrentProcessing(null);
+        hideProcessingOverlay();
+        updateProcessButtonState();
+      }
+
+      // Initialize the sidebar when the page loads
+      window.onload = function() {
+        initSidebar();
+        
+        // Try to restore state
+        try {
+          const savedState = sessionStorage.getItem('aiedit_state');
+          if (savedState) {
+            const state = JSON.parse(savedState);
+            selectedModel = state.selectedModel || '';
+            if (selectedModel) {
+              document.getElementById('modelSelect').value = selectedModel;
+            }
+          }
+        } catch (e) {
+          console.error('Error restoring initial state:', e);
+        }
+        
+        // Add cleanup handlers
+        window.addEventListener('unload', cleanup);
+      };
+      
+      // Debounce function
+      function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+          const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+          };
+          clearTimeout(timeout);
+          timeout = setTimeout(later, wait);
+        };
+      }
+      
+      /**
+       * Initialize the sidebar
+       */
+      function initSidebar() {
+        document.getElementById('refreshModels').addEventListener('click', debouncedFetchModels);
+        document.getElementById('processButton').addEventListener('click', processAIComments);
+        document.getElementById('modelSelect').addEventListener('change', handleModelChange);
+        
+        // Get fileId first
+        google.script.run
+          .withSuccessHandler(function(id) {
+            fileId = id;
+            // Initial data loading
+            fetchComments();
+            fetchModels();
+          })
+          .withFailureHandler(handleError)
+          .getDocumentId();
+      }
+      
+      // Debounced versions of fetch functions
+      const debouncedFetchModels = debounce(fetchModels, 1000);
+      const debouncedFetchComments = debounce(fetchComments, 1000);
+      
+      /**
+       * Fetch AI comments from the document
+       */
+      function fetchComments() {
+        document.getElementById('progress').innerHTML = '<div class="progress-item">Fetching AI comments...</div>';
+        
+        google.script.run
+          .withSuccessHandler(updateCommentsList)
+          .withFailureHandler(handleError)
+          .getAIComments();
+      }
+      
+      /**
+       * Update the UI with fetched comments
+       */
+      function updateCommentsList(comments) {
+        if (!comments) {
+          handleError("Failed to retrieve comments");
+          return;
+        }
+
+        commentsList = comments;
+        document.getElementById('commentCount').textContent = String(comments.length);
+        
+        const progressElement = document.getElementById('progress');
+        if (comments.length === 0) {
+          progressElement.innerHTML = [
+            '<div class="progress-item">No unprocessed AI comments found.</div>',
+            '<div class="progress-item"><b>How to use:</b></div>',
+            '<div class="progress-item">1. Highlight text you want to edit</div>',
+            '<div class="progress-item">2. Add a comment starting with "AI:" followed by your instruction</div>',
+            '<div class="progress-item">3. Click "Generate Suggestions" to get AI edits</div>',
+            '<div class="progress-item">4. Review and accept/reject suggestions</div>',
+            '<button id="refreshButton" style="margin-top: 10px; width: 100%;">Refresh Comments</button>'
+          ].join('');
+          
+          // Clean up old event listener if it exists
+          const oldButton = document.getElementById('refreshButton');
+          const newButton = oldButton.cloneNode(true);
+          oldButton.parentNode.replaceChild(newButton, oldButton);
+          newButton.addEventListener('click', fetchComments);
+        } else {
+          progressElement.innerHTML = '<div class="progress-item">Found ' + comments.length + ' unprocessed AI comments ready for processing.</div>';
+        }
+        
+        updateProcessButtonState();
+      }
+      
+      /**
+       * Escape HTML to prevent XSS
+       */
+      function escapeHtml(unsafe) {
+        return unsafe
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+      
+      /**
+       * Display the currently processing comment
+       */
+      function displayCurrentProcessing(comment) {
+        const container = document.getElementById('currentProcessing');
+        if (!comment) {
+          container.innerHTML = '';
+          return;
+        }
+        
+        container.innerHTML = `
+          <div class="current-processing">
+            <h4>Currently Processing:</h4>
+            <div><strong>Instruction:</strong></div>
+            <div class="text-block">${escapeHtml(comment.instruction)}</div>
+            <div><strong>Original Text:</strong></div>
+            <div class="text-block">${escapeHtml(comment.text)}</div>
+          </div>
+        `;
+      }
+      
+      /**
+       * Show processing overlay
+       */
+      function showProcessingOverlay(message) {
+        const overlay = document.getElementById('processingOverlay');
+        document.getElementById('processingStatus').textContent = message || 'Processing...';
+        overlay.style.display = 'flex';
+      }
+      
+      /**
+       * Hide processing overlay
+       */
+      function hideProcessingOverlay() {
+        document.getElementById('processingOverlay').style.display = 'none';
+      }
+      
+      /**
+       * Cancel ongoing processing
+       */
+      function cancelProcessing() {
+        isCancelled = true;
+        if (processingTimeout) {
+          clearTimeout(processingTimeout);
+          processingTimeout = null;
+        }
+        isProcessing = false;
+        currentComment = null;
+        displayCurrentProcessing(null);
+        updateProcessButtonState();
+        hideProcessingOverlay();
+        document.getElementById('progress').innerHTML = 
+          '<div class="progress-item">Processing cancelled by user.</div>';
+      }
+      
+      /**
+       * Show diff between original and suggested text
+       */
+      function createDiffView(originalText, suggestedText) {
+        return `
+          <div class="diff-view">
+            <div class="diff-removed">${escapeHtml(originalText)}</div>
+            <div class="diff-added">${escapeHtml(suggestedText)}</div>
+          </div>
+        `;
+      }
+      
+      /**
+       * Add a revision to the list
+       */
+      function addRevision(comment, suggestedText) {
+        const container = document.getElementById('revisionsList');
+        const revisionElement = document.createElement('div');
+        revisionElement.className = 'revision-item';
+        revisionElement.id = 'revision-' + comment.id;
+        
+        // Escape all text content to prevent XSS
+        const escapedInstruction = escapeHtml(comment.instruction);
+        const escapedOriginalText = escapeHtml(comment.text);
+        const escapedSuggestedText = escapeHtml(suggestedText);
+        const escapedCommentId = escapeHtml(comment.id);
+        
+        // Create safe onclick handlers by escaping quotes and newlines
+        const safeText = suggestedText.replace(/[\r\n]/g, ' ')
+          .replace(/'/g, "\\'")
+          .replace(/"/g, '\\"');
+        
+        revisionElement.innerHTML = `
+          <h4>Suggested Edit:</h4>
+          <div><strong>Instruction:</strong></div>
+          <div class="text-block">${escapedInstruction}</div>
+          <div><strong>Changes:</strong></div>
+          ${createDiffView(comment.text, suggestedText)}
+          <div class="button-group">
+            <button class="accept-button" onclick="handleAccept('${escapedCommentId}', '${safeText}')">Accept</button>
+            <button class="reject-button" onclick="handleReject('${escapedCommentId}', '${safeText}')">Reject</button>
+          </div>
+        `;
+        
+        container.insertBefore(revisionElement, container.firstChild);
+      }
+      
+      /**
+       * Handle accepting a suggestion
+       */
+      function handleAccept(commentId, suggestedText) {
+        const revisionElement = document.getElementById('revision-' + commentId);
+        if (!revisionElement) return;
+        
+        revisionElement.querySelector('.button-group').innerHTML = '<div class="status status-processing">Applying changes...</div>';
+        
+        google.script.run
+          .withSuccessHandler(function() {
+            revisionElement.innerHTML = '<div class="status status-completed">Changes applied successfully</div>';
+            setTimeout(() => {
+              revisionElement.remove();
+              fetchComments(); // Refresh comment list
+            }, 2000);
+          })
+          .withFailureHandler(function(error) {
+            revisionElement.querySelector('.button-group').innerHTML = 
+              `<div class="status status-error">Error: ${escapeHtml(error.toString())}</div>
+               <div class="button-group">
+                 <button class="accept-button" onclick="handleAccept('${escapeHtml(commentId)}', '${escapeHtml(suggestedText)}')">Retry Accept</button>
+                 <button class="reject-button" onclick="handleReject('${escapeHtml(commentId)}', '${escapeHtml(suggestedText)}')">Reject Instead</button>
+               </div>`;
+          })
+          .applyAIEdit(fileId, commentId, suggestedText, true);
+      }
+      
+      /**
+       * Handle rejecting a suggestion
+       */
+      function handleReject(commentId, suggestedText) {
+        const revisionElement = document.getElementById('revision-' + commentId);
+        if (!revisionElement) return;
+        
+        revisionElement.querySelector('.button-group').innerHTML = '<div class="status status-processing">Rejecting suggestion...</div>';
+        
+        google.script.run
+          .withSuccessHandler(function() {
+            revisionElement.innerHTML = '<div class="status status-completed">Suggestion rejected</div>';
+            setTimeout(() => {
+              revisionElement.remove();
+              fetchComments(); // Refresh comment list
+            }, 2000);
+          })
+          .withFailureHandler(function(error) {
+            revisionElement.querySelector('.button-group').innerHTML = 
+              `<div class="status status-error">Error: ${escapeHtml(error.toString())}</div>
+               <div class="button-group">
+                 <button class="reject-button" onclick="handleReject('${escapeHtml(commentId)}', '${escapeHtml(suggestedText)}')">Retry Reject</button>
+                 <button class="accept-button" onclick="handleAccept('${escapeHtml(commentId)}', '${escapeHtml(suggestedText)}')">Accept Instead</button>
+               </div>`;
+          })
+          .applyAIEdit(fileId, commentId, suggestedText, false);
+      }
+      
+      /**
+       * Fetch available models from Ollama API
+       */
+      function fetchModels() {
+        const modelSelect = document.getElementById('modelSelect');
+        modelSelect.innerHTML = '<option value="">Loading models...</option>';
+        
+        fetch('http://localhost:11434/api/tags', {
+          mode: 'cors',
+          headers: {
+            'Accept': 'application/json'
+          }
+        })
+        .then(function(response) {
+          if (!response.ok) {
+            throw new Error('Failed to fetch models: ' + response.statusText);
+          }
+          return response.json();
+        })
+        .then(function(data) {
+          if (data && data.models) {
+            populateModelDropdown(data.models);
+          } else {
+            throw new Error('Invalid response from Ollama API');
+          }
+        })
+        .catch(function(error) {
+          console.error('Error fetching models:', error);
+          modelSelect.innerHTML = 
+            '<option value="">Error: Cannot connect to Ollama</option>' +
+            '<option value="" disabled>Make sure Ollama is running on port 11434</option>';
+        });
+      }
+      
+      /**
+       * Populate the model dropdown with available models
+       */
+      function populateModelDropdown(models) {
+        const modelSelect = document.getElementById('modelSelect');
+        modelSelect.innerHTML = '';
+        
+        if (!models || models.length === 0) {
+          modelSelect.innerHTML = '<option value="">No models available</option>';
+          return;
+        }
+        
+        modelSelect.appendChild(new Option('Select a model...', ''));
+        models.forEach(function(model) {
+          modelSelect.appendChild(new Option(model.name, model.name));
+        });
+        
+        updateProcessButtonState();
+      }
+      
+      /**
+       * Handle model selection change
+       */
+      function handleModelChange(e) {
+        selectedModel = e.target.value;
+        updateProcessButtonState();
+      }
+      
+      /**
+       * Update process button enabled/disabled state
+       */
+      function updateProcessButtonState() {
+        const button = document.getElementById('processButton');
+        button.disabled = isProcessing || commentsList.length === 0 || !selectedModel;
+      }
+      
+      /**
+       * Process all AI comments sequentially
+       */
+      function processAIComments() {
+        if (isProcessing || commentsList.length === 0 || !selectedModel) {
+          return;
+        }
+        
+        // Clear any existing error states
+        document.getElementById('progress').innerHTML = '';
+        document.getElementById('revisionsList').innerHTML = '';
+        
+        isCancelled = false;
+        isProcessing = true;
+        isApiCallInProgress = false;  // Reset API call lock
+        updateProcessButtonState();
+        showProcessingOverlay('Preparing to process comments...');
+        
+        // Start processing after a short delay
+        processingTimeout = setTimeout(() => processNextComment(0), 500);
+      }
+      
+      /**
+       * Process comments one by one
+       */
+      function processNextComment(index) {
+        if (isCancelled || index >= commentsList.length || isApiCallInProgress) {
+          if (!isApiCallInProgress) {
+            isProcessing = false;
+            currentComment = null;
+            displayCurrentProcessing(null);
+            updateProcessButtonState();
+            hideProcessingOverlay();
+            
+            if (!isCancelled && index > 0) {
+              document.getElementById('progress').innerHTML = 
+                '<div class="progress-item status-completed">Finished processing all comments.</div>';
+            }
+          }
+          return;
+        }
+        
+        currentComment = commentsList[index];
+        displayCurrentProcessing(currentComment);
+        showProcessingOverlay(`Processing comment ${index + 1} of ${commentsList.length}...`);
+        
+        const prompt = currentComment.instruction + '\n\nText to edit:\n' + currentComment.text + 
+                      '\n\nPlease provide only the edited text without any explanations or formatting:';
+        
+        // Add delay between API calls
+        processingTimeout = setTimeout(() => callOllamaAPI(currentComment, prompt, index), 1000);
+      }
+      
+      /**
+       * Call Ollama API to process a comment
+       */
+      function callOllamaAPI(comment, prompt, currentIndex) {
+        if (isCancelled) {
+          processNextComment(currentIndex + 1);
+          return;
+        }
+
+        isApiCallInProgress = true;  // Set lock before API call
+        
+        console.log("aiedit: Ollama API Request:", {
+          model: selectedModel,
+          prompt: prompt,
+          commentId: comment.id,
+          instruction: comment.instruction
+        });
+
+        // Create AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+        fetch('http://localhost:11434/api/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: selectedModel,
+            prompt: prompt,
+            stream: false
+          }),
+          signal: controller.signal
+        })
+        .then(function(response) {
+          clearTimeout(timeoutId);
+          isApiCallInProgress = false;
+          if (!response.ok) {
+            throw new Error('Network error: ' + response.statusText);
+          }
+          return response.json();
+        })
+        .then(function(data) {
+          console.log("aiedit: Ollama API Response:", {
+            response: data.response,
+            commentId: comment.id,
+            originalText: comment.text
+          });
+
+          if (isCancelled) {
+            processNextComment(currentIndex + 1);
+            return;
+          }
+          
+          if (!data.response) {
+            throw new Error('Invalid response from Ollama API');
+          }
+          
+          // Sanitize the response text
+          const sanitizedResponse = data.response.replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+            .replace(/\u2028|\u2029/g, '\n')
+            .trim();
+          
+          // Add the revision to the list
+          addRevision(comment, sanitizedResponse);
+          
+          // Process next comment after a delay
+          processingTimeout = setTimeout(() => processNextComment(currentIndex + 1), 1000);
+        })
+        .catch(function(error) {
+          clearTimeout(timeoutId);
+          isApiCallInProgress = false;
+          
+          // Handle abort error specifically
+          if (error.name === 'AbortError') {
+            error = new Error('Request timed out after 30 seconds');
+          }
+          
+          console.error("aiedit: Error in Ollama API call:", error);
+          const errorMessage = escapeHtml(error.toString());
+          
+          if (!isCancelled) {
+            // Show error but continue after a delay
+            const progressElement = document.getElementById('progress');
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'progress-item status-error';
+            errorDiv.textContent = `Error processing comment ${currentIndex + 1}: ${errorMessage}`;
+            progressElement.appendChild(errorDiv);
+            
+            processingTimeout = setTimeout(() => processNextComment(currentIndex + 1), 2000);
+          }
+        });
+      }
+      
+      /**
+       * Handle errors
+       */
+      function handleError(error) {
+        console.error('Error:', error);
+        const progressElement = document.getElementById('progress');
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'progress-item status-error';
+        errorDiv.textContent = error.message || error.toString();
+        
+        // Clear existing content and append error
+        progressElement.innerHTML = '';
+        progressElement.appendChild(errorDiv);
+        
+        if (isProcessing) {
+          isProcessing = false;
+          currentComment = null;
+          displayCurrentProcessing(null);
+          updateProcessButtonState();
+          hideProcessingOverlay();
+        }
+      }
+      
+      /**
+       * Truncate text to specified length
+       */
+      function truncateText(text, maxLength) {
+        if (!text || text.length <= maxLength) return text || '';
+        return text.substring(0, maxLength) + '...';
+      }
+    </script>
+  </body>
+</html>
