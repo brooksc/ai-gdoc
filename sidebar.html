@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
   <head>
     <base target="_top">
     <meta charset="utf-8">
@@ -209,6 +210,8 @@
   <body>
     <h3>AI Editor</h3>
     <div class="container">
+      <button id="debugButton" style="background-color: #ff9800; margin-bottom: 10px;">Debug: Test First Comment</button>
+      
       <div class="model-selector">
         <div style="display: flex; align-items: center;">
           <label for="modelSelect">Select Model:</label>
@@ -802,12 +805,56 @@
           const sanitizedResponse = data.response.replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
             .replace(/\u2028|\u2029/g, '\n')
             .trim();
-          
-          // Add the revision to the list
-          addRevision(comment, sanitizedResponse);
-          
-          // Process next comment after a delay
-          processingTimeout = setTimeout(() => processNextComment(currentIndex + 1), 1000);
+
+          // First verify we can find the text location
+          google.script.run
+            .withSuccessHandler(function(result) {
+              if (!result || !result.success) {
+                throw new Error('Could not verify text location before replacement');
+              }
+
+              // Now apply the edit
+              google.script.run
+                .withSuccessHandler(function() {
+                  // Add the revision to the list for display
+                  addRevision(comment, sanitizedResponse);
+                  
+                  // Process next comment after a delay
+                  processingTimeout = setTimeout(() => processNextComment(currentIndex + 1), 1000);
+                })
+                .withFailureHandler(function(error) {
+                  console.error("aiedit: Error applying edit:", error);
+                  const errorMessage = escapeHtml(error.toString());
+                  
+                  if (!isCancelled) {
+                    // Show error but continue after a delay
+                    const progressElement = document.getElementById('progress');
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'progress-item status-error';
+                    errorDiv.textContent = `Error processing comment ${currentIndex + 1}: ${errorMessage}`;
+                    progressElement.appendChild(errorDiv);
+                    
+                    processingTimeout = setTimeout(() => processNextComment(currentIndex + 1), 2000);
+                  }
+                })
+                .applyAIEdit(fileId, comment.id, sanitizedResponse, true);
+            })
+            .withFailureHandler(function(error) {
+              console.error("aiedit: Error verifying text location:", error);
+              const errorMessage = escapeHtml(error.toString());
+              
+              if (!isCancelled) {
+                // Show error but continue after a delay
+                const progressElement = document.getElementById('progress');
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'progress-item status-error';
+                errorDiv.textContent = `Error processing comment ${currentIndex + 1}: ${errorMessage}`;
+                progressElement.appendChild(errorDiv);
+                
+                processingTimeout = setTimeout(() => processNextComment(currentIndex + 1), 2000);
+              }
+            })
+            .verifyTextLocation(fileId, comment.id, comment.text);
         })
         .catch(function(error) {
           clearTimeout(timeoutId);
@@ -864,6 +911,118 @@
         if (!text || text.length <= maxLength) return text || '';
         return text.substring(0, maxLength) + '...';
       }
+
+      /**
+       * Debug function to test comment processing
+       */
+      function debugFirstComment() {
+        const debugButton = document.getElementById('debugButton');
+        debugButton.disabled = true;
+        debugButton.textContent = 'Testing...';
+        
+        console.log("aiedit-debug: Starting debug test on first comment");
+        
+        google.script.run
+          .withSuccessHandler(function(result) {
+            console.log("aiedit-debug: Debug test completed successfully", result);
+            debugButton.textContent = 'Test Completed ✓';
+            
+            // Get and display the logs
+            google.script.run
+              .withSuccessHandler(function(logs) {
+                const progressElement = document.getElementById('progress');
+
+                try {
+                  // Parse the logs (now a single JSON array string)
+                  const logEntries = JSON.parse(logs);
+
+                  // Format logs for display
+                  const formattedLogs = logEntries.map(entry => {
+                    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : '';
+                    const message = entry.message || '';
+                    const data = entry.data ? '\n' + JSON.stringify(entry.data, null, 2) : '';
+                    return `[${timestamp}] ${message}${data}`;
+                  }).join('\n');
+
+                  progressElement.innerHTML = '<div class="progress-item">Debug logs:</div>' +
+                    '<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; ' +
+                    'background: #f5f5f5; padding: 10px; border-radius: 4px; margin: 10px 0; ' +
+                    'max-height: 400px; overflow-y: auto;">' + 
+                    escapeHtml(formattedLogs) + '</pre>';
+                } catch (e) {
+                  // Fallback to raw logs if parsing fails
+                  progressElement.innerHTML = '<div class="progress-item">Debug logs (raw):</div>' +
+                    '<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; ' +
+                    'background: #f5f5f5; padding: 10px; border-radius: 4px; margin: 10px 0; ' +
+                    'max-height: 400px; overflow-y: auto;">' + 
+                    escapeHtml(logs) + '</pre>';
+                }
+              })
+              .getDebugLogs();
+            
+            setTimeout(() => {
+              debugButton.disabled = false;
+              debugButton.textContent = 'Debug: Test First Comment';
+            }, 3000);
+          })
+          .withFailureHandler(function(error) {
+            console.error("aiedit-debug: Debug test failed", error);
+            debugButton.textContent = 'Test Failed ✗';
+            debugButton.style.backgroundColor = '#d93025';
+
+            // Get and display the logs
+            google.script.run
+              .withSuccessHandler(function(logs) {
+                const progressElement = document.getElementById('progress');
+                let errorData;
+                try {
+                  errorData = JSON.parse(error.message);
+                } catch (parseError) {
+                  errorData = {error: error.message};
+                }
+                
+                // Try to parse the logs
+                try {
+                  // Split logs by newline and parse each line
+                  const logEntries = JSON.parse(logs);
+                  
+                  // Format logs for display
+                  const formattedLogs = logEntries.map(entry => {
+                    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : '';
+                    const message = entry.message || '';
+                    const data = entry.data ? '\n' + JSON.stringify(entry.data, null, 2) : '';
+                    return `[${timestamp}] ${message}${data}`;
+                  }).join('\n');
+                  
+                  progressElement.innerHTML = '<div class="progress-item status-error">Debug test failed</div>' +
+                    '<div class="progress-item status-error">Error: ' + escapeHtml(errorData.error) + '</div>' +
+                    '<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; ' +
+                    'background: #fce8e6; padding: 10px; border-radius: 4px; margin: 10px 0; ' +
+                    'max-height: 400px; overflow-y: auto;">' + 
+                    escapeHtml(formattedLogs) + '</pre>';
+                } catch (e) {
+                  // Fallback to raw logs if parsing fails
+                  progressElement.innerHTML = '<div class="progress-item status-error">Debug test failed</div>' +
+                    '<div class="progress-item status-error">Error: ' + escapeHtml(error.message) + '</div>' +
+                    '<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; ' +
+                    'background: #fce8e6; padding: 10px; border-radius: 4px; margin: 10px 0; ' +
+                    'max-height: 400px; overflow-y: auto;">' + 
+                    escapeHtml(logs) + '</pre>';
+                }
+              })
+              .getDebugLogs();
+            
+            setTimeout(() => {
+              debugButton.disabled = false;
+              debugButton.textContent = 'Debug: Test First Comment';
+              debugButton.style.backgroundColor = '#ff9800';
+            }, 3000);
+          })
+          .debugTestFirstComment();
+      }
+
+      // Add debug button handler
+      document.getElementById('debugButton').addEventListener('click', debugFirstComment);
     </script>
   </body>
 </html>
