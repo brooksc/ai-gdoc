@@ -66,6 +66,76 @@
         background-color: #ccc;
         cursor: not-allowed;
       }
+      
+      /* Logging section styles */
+      .logging-section {
+        margin-top: 15px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background: #fff;
+      }
+      
+      .logging-header {
+        display: flex;
+        align-items: center;
+        padding: 8px;
+        background: #f8f9fa;
+        border-bottom: 1px solid #ddd;
+        border-radius: 4px 4px 0 0;
+      }
+      
+      .logging-header h4 {
+        margin: 0;
+        flex-grow: 1;
+        color: #1a73e8;
+        font-size: 14px;
+      }
+      
+      .copy-button, .clear-button, .refresh-button {
+        padding: 4px 8px;
+        font-size: 12px;
+        margin-left: 8px;
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+      }
+      
+      .copy-button:hover, .clear-button:hover, .refresh-button:hover {
+        background: #f1f3f4;
+      }
+      
+      .unified-logs {
+        width: 100%;
+        height: 300px;
+        padding: 8px;
+        font-family: 'Roboto Mono', monospace;
+        font-size: 12px;
+        border: none;
+        resize: vertical;
+        background: #fff;
+        color: #444;
+        line-height: 1.4;
+        white-space: pre-wrap;
+        overflow-y: auto;
+      }
+      
+      .unified-logs:focus {
+        outline: none;
+        border-color: #1a73e8;
+      }
+      
+      /* Add styles for different log categories */
+      .log-error { color: #d93025; }
+      .log-debug { color: #188038; }
+      .log-comment { color: #1a73e8; }
+      .log-text { color: #666; }
+      .log-state { color: #9334e6; }
+      
+
       .progress-container {
         margin-top: 15px;
       }
@@ -212,6 +282,24 @@
     <div class="container">
       <button id="debugButton" style="background-color: #ff9800; margin-bottom: 10px;">Debug: Test First Comment</button>
       
+      <!-- Unified logging section -->
+      <div class="logging-section">
+        <div class="logging-header">
+          <h4>Debug Logs</h4>
+          <button id="copyLogsButton" class="copy-button" title="Copy logs to clipboard">
+            <span class="copy-icon">📋</span> Copy
+          </button>
+          <button id="clearLogsButton" class="clear-button" title="Clear logs">
+            <span class="clear-icon">🗑️</span> Clear
+          </button>
+          <button id="refreshLogsButton" class="refresh-button" title="Refresh logs">
+            <span class="refresh-icon">🔄</span> Refresh
+          </button>
+        </div>
+        <textarea id="unifiedLogs" readonly class="unified-logs" 
+                  placeholder="Debug logs will appear here..."></textarea>
+      </div>
+      
       <div class="model-selector">
         <div style="display: flex; align-items: center;">
           <label for="modelSelect">Select Model:</label>
@@ -253,6 +341,35 @@
       let processingTimeout = null;
       let isApiCallInProgress = false;
       
+      /**
+       * Handle errors in a user-friendly way
+       */
+      function handleError(error) {
+        const errorMessage = error.toString();
+        
+        // Log the error
+        unifiedLogger.appendLog({
+          message: 'Error: ' + errorMessage,
+          category: 'ERROR',
+          timestamp: new Date().toISOString(),
+          data: error
+        });
+        
+        // Update progress UI
+        const progressElement = document.getElementById('progress');
+        progressElement.innerHTML = `<div class="progress-item status-error">Error: ${escapeHtml(errorMessage)}</div>`;
+        
+        // Reset state
+        isProcessing = false;
+        isApiCallInProgress = false;
+        currentComment = null;
+        
+        // Update UI
+        updateProcessButtonState();
+        hideProcessingOverlay();
+        displayCurrentProcessing(null);
+      }
+      
       // Handle page visibility changes
       document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
@@ -262,11 +379,18 @@
               selectedModel,
               isProcessing,
               currentComment,
-              commentsList
+              commentsList,
+              isOpen: true // Add isOpen flag
             };
             sessionStorage.setItem('aiedit_state', JSON.stringify(state));
           } catch (e) {
             console.error('Error saving state:', e);
+            unifiedLogger.appendLog({
+              message: 'Error saving state',
+              category: 'ERROR',
+              timestamp: new Date().toISOString(),
+              data: { error: e.toString() }
+            });
           }
         } else {
           // Page is visible again, check if we need to restore state
@@ -290,14 +414,19 @@
               displayCurrentProcessing(null);
               hideProcessingOverlay();
               
-              // Refresh data
-              fetchComments();
-              if (selectedModel) {
-                document.getElementById('modelSelect').value = selectedModel;
+              // Refresh data if sidebar was open
+              if (state.isOpen) {
+                reopenSidebarUI();
               }
             }
           } catch (e) {
             console.error('Error restoring state:', e);
+            unifiedLogger.appendLog({
+              message: 'Error restoring state',
+              category: 'ERROR',
+              timestamp: new Date().toISOString(),
+              data: { error: e.toString() }
+            });
             // On error, do a clean reload
             cleanup();
             initSidebar();
@@ -335,12 +464,27 @@
           sessionStorage.removeItem('aiedit_state');
         } catch (e) {
           console.error('Error clearing state:', e);
+          unifiedLogger.appendLog({
+            message: 'Error clearing state',
+            category: 'ERROR',
+            timestamp: new Date().toISOString(),
+            data: { error: e.toString() }
+          });
         }
         
         // Reset UI
         displayCurrentProcessing(null);
         hideProcessingOverlay();
         updateProcessButtonState();
+      }
+
+      /**
+       * Function to handle reopening the sidebar UI
+       */
+      function reopenSidebarUI() {
+        fetchComments(); // Refresh comments
+        fetchModels(); // Refresh models
+        updateProcessButtonState(); // Update button state
       }
 
       // Initialize the sidebar when the page loads
@@ -356,9 +500,19 @@
             if (selectedModel) {
               document.getElementById('modelSelect').value = selectedModel;
             }
+            // Check if sidebar was open
+            if (state.isOpen) {
+              reopenSidebarUI();
+            }
           }
         } catch (e) {
           console.error('Error restoring initial state:', e);
+          unifiedLogger.appendLog({
+            message: 'Error restoring initial state',
+            category: 'ERROR',
+            timestamp: new Date().toISOString(),
+            data: { error: e.toString() }
+          });
         }
         
         // Add cleanup handlers
@@ -377,6 +531,9 @@
           timeout = setTimeout(later, wait);
         };
       }
+      
+      // Create debounced version of fetchModels
+      const debouncedFetchModels = debounce(fetchModels, 1000);
       
       /**
        * Initialize the sidebar
@@ -397,10 +554,6 @@
           .withFailureHandler(handleError)
           .getDocumentId();
       }
-      
-      // Debounced versions of fetch functions
-      const debouncedFetchModels = debounce(fetchModels, 1000);
-      const debouncedFetchComments = debounce(fetchComments, 1000);
       
       /**
        * Fetch AI comments from the document
@@ -538,28 +691,34 @@
         revisionElement.className = 'revision-item';
         revisionElement.id = 'revision-' + comment.id;
         
-        // Escape all text content to prevent XSS
-        const escapedInstruction = escapeHtml(comment.instruction);
-        const escapedOriginalText = escapeHtml(comment.text);
-        const escapedSuggestedText = escapeHtml(suggestedText);
-        const escapedCommentId = escapeHtml(comment.id);
-        
-        // Create safe onclick handlers by escaping quotes and newlines
-        const safeText = suggestedText.replace(/[\r\n]/g, ' ')
-          .replace(/'/g, "\\'")
-          .replace(/"/g, '\\"');
-        
-        revisionElement.innerHTML = `
+        // Create the content container first
+        const contentContainer = document.createElement('div');
+        contentContainer.innerHTML = `
           <h4>Suggested Edit:</h4>
           <div><strong>Instruction:</strong></div>
-          <div class="text-block">${escapedInstruction}</div>
+          <div class="text-block">${escapeHtml(comment.instruction)}</div>
           <div><strong>Changes:</strong></div>
           ${createDiffView(comment.text, suggestedText)}
-          <div class="button-group">
-            <button class="accept-button" onclick="handleAccept('${escapedCommentId}', '${safeText}')">Accept</button>
-            <button class="reject-button" onclick="handleReject('${escapedCommentId}', '${safeText}')">Reject</button>
-          </div>
         `;
+        revisionElement.appendChild(contentContainer);
+        
+        // Create accept and reject buttons separately
+        const buttonGroup = document.createElement('div');
+        buttonGroup.className = 'button-group';
+        
+        const acceptButton = document.createElement('button');
+        acceptButton.className = 'accept-button';
+        acceptButton.textContent = 'Accept';
+        acceptButton.addEventListener('click', () => handleAccept(comment.id, suggestedText));
+        
+        const rejectButton = document.createElement('button');
+        rejectButton.className = 'reject-button';
+        rejectButton.textContent = 'Reject';
+        rejectButton.addEventListener('click', () => handleReject(comment.id, suggestedText));
+        
+        buttonGroup.appendChild(acceptButton);
+        buttonGroup.appendChild(rejectButton);
+        revisionElement.appendChild(buttonGroup);
         
         container.insertBefore(revisionElement, container.firstChild);
       }
@@ -570,11 +729,28 @@
       function handleAccept(commentId, suggestedText) {
         const revisionElement = document.getElementById('revision-' + commentId);
         if (!revisionElement) return;
-        
+
+        unifiedLogger.appendLog({
+          message: 'Starting accept operation',
+          category: 'DEBUG',
+          timestamp: new Date().toISOString(),
+          data: {
+            commentId: commentId,
+            suggestedTextLength: suggestedText.length,
+            fileId: fileId
+          }
+        });
+
         revisionElement.querySelector('.button-group').innerHTML = '<div class="status status-processing">Applying changes...</div>';
-        
+
         google.script.run
           .withSuccessHandler(function() {
+            unifiedLogger.appendLog({
+              message: 'Changes applied successfully',
+              category: 'DEBUG',
+              timestamp: new Date().toISOString(),
+              data: { commentId: commentId }
+            });
             revisionElement.innerHTML = '<div class="status status-completed">Changes applied successfully</div>';
             setTimeout(() => {
               revisionElement.remove();
@@ -582,12 +758,34 @@
             }, 2000);
           })
           .withFailureHandler(function(error) {
-            revisionElement.querySelector('.button-group').innerHTML = 
-              `<div class="status status-error">Error: ${escapeHtml(error.toString())}</div>
-               <div class="button-group">
-                 <button class="accept-button" onclick="handleAccept('${escapeHtml(commentId)}', '${escapeHtml(suggestedText)}')">Retry Accept</button>
-                 <button class="reject-button" onclick="handleReject('${escapeHtml(commentId)}', '${escapeHtml(suggestedText)}')">Reject Instead</button>
-               </div>`;
+            unifiedLogger.appendLog({
+              message: 'Failed to apply changes',
+              category: 'ERROR',
+              timestamp: new Date().toISOString(),
+              data: {
+                commentId: commentId,
+                error: error.toString()
+              }
+            });
+            
+            const escapedError = escapeHtml(error.toString());
+            const buttonGroup = document.createElement('div');
+            buttonGroup.className = 'button-group';
+            buttonGroup.innerHTML = `
+              <div class="status status-error">Error: ${escapedError}</div>
+              <div class="button-group">
+                <button class="accept-button">Retry Accept</button>
+                <button class="reject-button">Reject Instead</button>
+              </div>`;
+            
+            const oldButtonGroup = revisionElement.querySelector('.button-group');
+            oldButtonGroup.replaceWith(buttonGroup);
+            
+            // Add event listeners for retry/reject
+            const retryButton = buttonGroup.querySelector('.accept-button');
+            const rejectButton = buttonGroup.querySelector('.reject-button');
+            retryButton.addEventListener('click', () => handleAccept(commentId, suggestedText));
+            rejectButton.addEventListener('click', () => handleReject(commentId, suggestedText));
           })
           .applyAIEdit(fileId, commentId, suggestedText, true);
       }
@@ -599,10 +797,26 @@
         const revisionElement = document.getElementById('revision-' + commentId);
         if (!revisionElement) return;
         
+        unifiedLogger.appendLog({
+          message: 'Starting reject operation',
+          category: 'DEBUG',
+          timestamp: new Date().toISOString(),
+          data: {
+            commentId: commentId,
+            suggestedTextLength: suggestedText.length,
+            fileId: fileId
+          }
+        });
+        
         revisionElement.querySelector('.button-group').innerHTML = '<div class="status status-processing">Rejecting suggestion...</div>';
         
         google.script.run
           .withSuccessHandler(function() {
+            unifiedLogger.appendLog({
+              message: 'Changes rejected successfully',
+              category: 'DEBUG',
+              timestamp: new Date().toISOString()
+            });
             revisionElement.innerHTML = '<div class="status status-completed">Suggestion rejected</div>';
             setTimeout(() => {
               revisionElement.remove();
@@ -610,23 +824,43 @@
             }, 2000);
           })
           .withFailureHandler(function(error) {
-            revisionElement.querySelector('.button-group').innerHTML = 
-              `<div class="status status-error">Error: ${escapeHtml(error.toString())}</div>
-               <div class="button-group">
-                 <button class="reject-button" onclick="handleReject('${escapeHtml(commentId)}', '${escapeHtml(suggestedText)}')">Retry Reject</button>
-                 <button class="accept-button" onclick="handleAccept('${escapeHtml(commentId)}', '${escapeHtml(suggestedText)}')">Accept Instead</button>
-               </div>`;
+            unifiedLogger.appendLog({
+              message: 'Failed to reject changes',
+              category: 'ERROR',
+              timestamp: new Date().toISOString(),
+              data: { error: error.toString() }
+            });
+            
+            const escapedError = escapeHtml(error.toString());
+            const buttonGroup = document.createElement('div');
+            buttonGroup.className = 'button-group';
+            buttonGroup.innerHTML = `
+              <div class="status status-error">Error: ${escapedError}</div>
+              <div class="button-group">
+                <button class="reject-button">Retry Reject</button>
+                <button class="accept-button">Accept Instead</button>
+              </div>`;
+            
+            const oldButtonGroup = revisionElement.querySelector('.button-group');
+            oldButtonGroup.replaceWith(buttonGroup);
+            
+            // Add event listeners for retry/reject
+            const retryButton = buttonGroup.querySelector('.reject-button');
+            const acceptButton = buttonGroup.querySelector('.accept-button');
+            retryButton.addEventListener('click', () => handleReject(commentId, suggestedText));
+            acceptButton.addEventListener('click', () => handleAccept(commentId, suggestedText));
           })
           .applyAIEdit(fileId, commentId, suggestedText, false);
       }
       
       /**
-       * Fetch available models from Ollama API
+       * Populate the model dropdown with available models
        */
       function fetchModels() {
         const modelSelect = document.getElementById('modelSelect');
         modelSelect.innerHTML = '<option value="">Loading models...</option>';
-        
+        modelSelect.disabled = true;
+
         fetch('http://localhost:11434/api/tags', {
           mode: 'cors',
           headers: {
@@ -640,38 +874,40 @@
           return response.json();
         })
         .then(function(data) {
+          modelSelect.disabled = false;
           if (data && data.models) {
-            populateModelDropdown(data.models);
+            modelSelect.innerHTML = '';
+            if (!data.models || data.models.length === 0) {
+              modelSelect.innerHTML = '<option value="">No models available</option>';
+              return;
+            }
+            modelSelect.appendChild(new Option('Select a model...', ''));
+
+            data.models.forEach(function(model) {
+              const option = new Option(model.name, model.name);
+              if (model.name === selectedModel) {
+                option.selected = true;
+              }
+              modelSelect.appendChild(option);
+            });
+            updateProcessButtonState();
           } else {
             throw new Error('Invalid response from Ollama API');
           }
         })
         .catch(function(error) {
           console.error('Error fetching models:', error);
-          modelSelect.innerHTML = 
+          unifiedLogger.appendLog({
+            message: 'Error fetching models',
+            category: 'ERROR',
+            timestamp: new Date().toISOString(),
+            data: { error: error.toString() }
+          });
+          modelSelect.disabled = false;
+          modelSelect.innerHTML =
             '<option value="">Error: Cannot connect to Ollama</option>' +
             '<option value="" disabled>Make sure Ollama is running on port 11434</option>';
         });
-      }
-      
-      /**
-       * Populate the model dropdown with available models
-       */
-      function populateModelDropdown(models) {
-        const modelSelect = document.getElementById('modelSelect');
-        modelSelect.innerHTML = '';
-        
-        if (!models || models.length === 0) {
-          modelSelect.innerHTML = '<option value="">No models available</option>';
-          return;
-        }
-        
-        modelSelect.appendChild(new Option('Select a model...', ''));
-        models.forEach(function(model) {
-          modelSelect.appendChild(new Option(model.name, model.name));
-        });
-        
-        updateProcessButtonState();
       }
       
       /**
@@ -680,6 +916,19 @@
       function handleModelChange(e) {
         selectedModel = e.target.value;
         updateProcessButtonState();
+        
+        // Save the selected model
+        google.script.run
+          .withFailureHandler(function(error) {
+            console.error('Failed to save model selection:', error);
+            unifiedLogger.appendLog({
+              message: 'Failed to save model selection',
+              category: 'ERROR',
+              timestamp: new Date().toISOString(),
+              data: { error: error.toString() }
+            });
+          })
+          .saveSelectedModel(selectedModel);
       }
       
       /**
@@ -691,6 +940,35 @@
       }
       
       /**
+       * Copy session logs to clipboard
+       */
+      function copySessionLogs(container) {
+        const logText = Array.from(container.querySelectorAll('div'))
+          .slice(1) // Skip the header div
+          .map(div => div.textContent)
+          .join('\n');
+        
+        navigator.clipboard.writeText(logText).then(
+          () => {
+            const btn = container.querySelector('button');
+            const originalText = btn.textContent;
+            btn.textContent = '✓';
+            setTimeout(() => {
+              btn.textContent = originalText;
+            }, 1000);
+          },
+          (err) => {
+            console.error('Failed to copy logs:', err);
+            const btn = container.querySelector('button');
+            btn.textContent = '✗';
+            setTimeout(() => {
+              btn.textContent = '📋';
+            }, 1000);
+          }
+        );
+      }
+      
+      /**
        * Process all AI comments sequentially
        */
       function processAIComments() {
@@ -698,10 +976,35 @@
           return;
         }
         
-        // Clear any existing error states
-        document.getElementById('progress').innerHTML = '';
-        document.getElementById('revisionsList').innerHTML = '';
+        // Create a new container for this processing session's logs
+        const progressElement = document.getElementById('progress');
+        const sessionContainer = document.createElement('div');
+        sessionContainer.className = 'progress-item';
+        sessionContainer.style.marginBottom = '20px';
         
+        const headerContainer = document.createElement('div');
+        headerContainer.style.display = 'flex';
+        headerContainer.style.alignItems = 'center';
+        headerContainer.style.gap = '8px';
+        
+        const headerText = document.createElement('div');
+        headerText.innerHTML = '<strong>Processing Session Logs:</strong>';
+        
+        const copyButton = document.createElement('button');
+        copyButton.style.padding = '4px 8px';
+        copyButton.style.fontSize = '12px';
+        copyButton.style.minWidth = '32px';
+        copyButton.title = 'Copy logs to clipboard';
+        copyButton.textContent = '📋';
+        copyButton.addEventListener('click', () => copySessionLogs(sessionContainer));
+        
+        headerContainer.appendChild(headerText);
+        headerContainer.appendChild(copyButton);
+        sessionContainer.appendChild(headerContainer);
+        
+        progressElement.insertBefore(sessionContainer, progressElement.firstChild);
+        
+        // Don't clear revisionsList anymore
         isCancelled = false;
         isProcessing = true;
         isApiCallInProgress = false;  // Reset API call lock
@@ -709,7 +1012,7 @@
         showProcessingOverlay('Preparing to process comments...');
         
         // Start processing after a short delay
-        processingTimeout = setTimeout(() => processNextComment(0), 500);
+        processingTimeout = setTimeout(() => processNextComment(0, sessionContainer), 500);
       }
       
       /**
@@ -725,8 +1028,11 @@
             hideProcessingOverlay();
             
             if (!isCancelled && index > 0) {
-              document.getElementById('progress').innerHTML = 
-                '<div class="progress-item status-completed">Finished processing all comments.</div>';
+              unifiedLogger.appendLog({
+                message: 'Finished processing all comments',
+                category: 'DEBUG',
+                timestamp: new Date().toISOString()
+              });
             }
           }
           return;
@@ -744,6 +1050,121 @@
       }
       
       /**
+       * Debug function to test comment processing
+       */
+      function debugFirstComment() {
+        const debugButton = document.getElementById('debugButton');
+        debugButton.disabled = true;
+        debugButton.textContent = 'Testing...';
+        
+        unifiedLogger.appendLog({
+          message: 'Starting debug test',
+          category: 'DEBUG',
+          timestamp: new Date().toISOString()
+        });
+
+        // Get first comment
+        google.script.run
+          .withSuccessHandler(function(comments) {
+            if (!comments || comments.length === 0) {
+              unifiedLogger.appendLog({
+                message: 'No comments found',
+                category: 'DEBUG',
+                timestamp: new Date().toISOString()
+              });
+              debugButton.textContent = 'No Comments ✗';
+              setTimeout(() => {
+                debugButton.disabled = false;
+                debugButton.textContent = 'Debug: Test First Comment';
+              }, 2000);
+              return;
+            }
+
+            const comment = comments[0];
+            unifiedLogger.appendLog({
+              message: 'Found first comment',
+              category: 'DEBUG',
+              timestamp: new Date().toISOString(),
+              data: comment
+            });
+
+            // Simulate API response
+            const simulatedResponse = "It works!!";
+            unifiedLogger.appendLog({
+              message: 'Simulated API response',
+              category: 'DEBUG',
+              timestamp: new Date().toISOString(),
+              data: { response: simulatedResponse }
+            });
+
+            // Verify text location
+            google.script.run
+              .withSuccessHandler(function(result) {
+                if (!result || !result.success) {
+                  unifiedLogger.appendLog({
+                    message: 'Text location verification failed',
+                    category: 'ERROR',
+                    timestamp: new Date().toISOString(),
+                    data: result
+                  });
+                  throw new Error(result.error || 'Could not verify text location');
+                }
+
+                unifiedLogger.appendLog({
+                  message: 'Text location verified successfully',
+                  category: 'DEBUG',
+                  timestamp: new Date().toISOString(),
+                  data: result
+                });
+
+                // Add the suggestion to the UI for user review
+                addRevision(comment, simulatedResponse);
+                
+                debugButton.textContent = 'Test Completed ✓';
+                setTimeout(() => {
+                  debugButton.disabled = false;
+                  debugButton.textContent = 'Debug: Test First Comment';
+                }, 2000);
+              })
+              .withFailureHandler(function(error) {
+                unifiedLogger.appendLog({
+                  message: 'Text location verification failed',
+                  category: 'ERROR',
+                  timestamp: new Date().toISOString(),
+                  data: { error: error.toString() }
+                });
+                debugButton.textContent = 'Test Failed ✗';
+                debugButton.style.backgroundColor = '#d93025';
+                setTimeout(() => {
+                  debugButton.disabled = false;
+                  debugButton.textContent = 'Debug: Test First Comment';
+                  debugButton.style.backgroundColor = '#ff9800';
+                }, 2000);
+              })
+              .verifyTextLocation(fileId, comment.id, comment.text);
+          })
+          .withFailureHandler(function(error) {
+            unifiedLogger.appendLog({
+              message: 'Failed to get comments',
+              category: 'ERROR',
+              timestamp: new Date().toISOString(),
+              data: { error: error.toString() }
+            });
+            debugButton.textContent = 'Test Failed ✗';
+            debugButton.style.backgroundColor = '#d93025';
+            setTimeout(() => {
+              debugButton.disabled = false;
+              debugButton.textContent = 'Debug: Test First Comment';
+              debugButton.style.backgroundColor = '#ff9800';
+            }, 2000);
+          })
+          .getAIComments();
+      }
+
+      // Add debug button handler
+      document.getElementById('debugButton').addEventListener('click', debugFirstComment);
+
+      /**
        * Call Ollama API to process a comment
        */
       function callOllamaAPI(comment, prompt, currentIndex) {
@@ -754,11 +1175,15 @@
 
         isApiCallInProgress = true;  // Set lock before API call
         
-        console.log("aiedit: Ollama API Request:", {
-          model: selectedModel,
-          prompt: prompt,
-          commentId: comment.id,
-          instruction: comment.instruction
+        unifiedLogger.appendLog({
+          message: 'Starting API request',
+          category: 'DEBUG',
+          timestamp: new Date().toISOString(),
+          data: {
+            model: selectedModel,
+            commentId: comment.id,
+            instruction: comment.instruction
+          }
         });
 
         // Create AbortController for timeout
@@ -786,10 +1211,14 @@
           return response.json();
         })
         .then(function(data) {
-          console.log("aiedit: Ollama API Response:", {
-            response: data.response,
-            commentId: comment.id,
-            originalText: comment.text
+          unifiedLogger.appendLog({
+            message: 'Received API response',
+            category: 'DEBUG',
+            timestamp: new Date().toISOString(),
+            data: {
+              response: data.response,
+              commentId: comment.id
+            }
           });
 
           if (isCancelled) {
@@ -806,50 +1235,59 @@
             .replace(/\u2028|\u2029/g, '\n')
             .trim();
 
+          unifiedLogger.appendLog({
+            message: 'Verifying text location',
+            category: 'DEBUG',
+            timestamp: new Date().toISOString(),
+            data: {
+              commentId: comment.id,
+              textLength: comment.text.length
+            }
+          });
+
           // First verify we can find the text location
           google.script.run
             .withSuccessHandler(function(result) {
               if (!result || !result.success) {
-                throw new Error('Could not verify text location before replacement');
+                unifiedLogger.appendLog({
+                  message: 'Text location verification failed',
+                  category: 'ERROR',
+                  timestamp: new Date().toISOString(),
+                  data: result
+                });
+                throw new Error(result.error || 'Could not verify text location before replacement');
               }
 
-              // Now apply the edit
-              google.script.run
-                .withSuccessHandler(function() {
-                  // Add the revision to the list for display
-                  addRevision(comment, sanitizedResponse);
-                  
-                  // Process next comment after a delay
-                  processingTimeout = setTimeout(() => processNextComment(currentIndex + 1), 1000);
-                })
-                .withFailureHandler(function(error) {
-                  console.error("aiedit: Error applying edit:", error);
-                  const errorMessage = escapeHtml(error.toString());
-                  
-                  if (!isCancelled) {
-                    // Show error but continue after a delay
-                    const progressElement = document.getElementById('progress');
-                    const errorDiv = document.createElement('div');
-                    errorDiv.className = 'progress-item status-error';
-                    errorDiv.textContent = `Error processing comment ${currentIndex + 1}: ${errorMessage}`;
-                    progressElement.appendChild(errorDiv);
-                    
-                    processingTimeout = setTimeout(() => processNextComment(currentIndex + 1), 2000);
-                  }
-                })
-                .applyAIEdit(fileId, comment.id, sanitizedResponse, true);
+              unifiedLogger.appendLog({
+                message: 'Text location verified successfully',
+                category: 'DEBUG',
+                timestamp: new Date().toISOString(),
+                data: result
+              });
+
+              // Add the suggestion to the UI for user review
+              addRevision(comment, sanitizedResponse);
+              
+              // Process next comment after a delay
+              processingTimeout = setTimeout(() => processNextComment(currentIndex + 1), 1000);
             })
             .withFailureHandler(function(error) {
               console.error("aiedit: Error verifying text location:", error);
               const errorMessage = escapeHtml(error.toString());
+              unifiedLogger.appendLog({
+                message: 'Text location verification failed',
+                category: 'ERROR',
+                timestamp: new Date().toISOString(),
+                data: { error: error.toString() }
+              });
               
               if (!isCancelled) {
-                // Show error but continue after a delay
-                const progressElement = document.getElementById('progress');
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'progress-item status-error';
-                errorDiv.textContent = `Error processing comment ${currentIndex + 1}: ${errorMessage}`;
-                progressElement.appendChild(errorDiv);
+                unifiedLogger.appendLog({
+                  message: `Error processing comment ${currentIndex + 1}`,
+                  category: 'ERROR',
+                  timestamp: new Date().toISOString(),
+                  data: { error: errorMessage }
+                });
                 
                 processingTimeout = setTimeout(() => processNextComment(currentIndex + 1), 2000);
               }
@@ -867,162 +1305,269 @@
           
           console.error("aiedit: Error in Ollama API call:", error);
           const errorMessage = escapeHtml(error.toString());
+          unifiedLogger.appendLog({
+            message: 'API call failed',
+            category: 'ERROR',
+            timestamp: new Date().toISOString(),
+            data: { error: error.toString() }
+          });
           
           if (!isCancelled) {
-            // Show error but continue after a delay
-            const progressElement = document.getElementById('progress');
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'progress-item status-error';
-            errorDiv.textContent = `Error processing comment ${currentIndex + 1}: ${errorMessage}`;
-            progressElement.appendChild(errorDiv);
+            unifiedLogger.appendLog({
+              message: `Error processing comment ${currentIndex + 1}`,
+              category: 'ERROR',
+              timestamp: new Date().toISOString(),
+              data: { error: errorMessage }
+            });
             
             processingTimeout = setTimeout(() => processNextComment(currentIndex + 1), 2000);
           }
         });
       }
-      
-      /**
-       * Handle errors
-       */
-      function handleError(error) {
-        console.error('Error:', error);
-        const progressElement = document.getElementById('progress');
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'progress-item status-error';
-        errorDiv.textContent = error.message || error.toString();
-        
-        // Clear existing content and append error
-        progressElement.innerHTML = '';
-        progressElement.appendChild(errorDiv);
-        
-        if (isProcessing) {
-          isProcessing = false;
-          currentComment = null;
-          displayCurrentProcessing(null);
-          updateProcessButtonState();
-          hideProcessingOverlay();
-        }
-      }
-      
-      /**
-       * Truncate text to specified length
-       */
-      function truncateText(text, maxLength) {
-        if (!text || text.length <= maxLength) return text || '';
-        return text.substring(0, maxLength) + '...';
-      }
 
       /**
-       * Debug function to test comment processing
+       * Copy server logs to clipboard
        */
-      function debugFirstComment() {
-        const debugButton = document.getElementById('debugButton');
-        debugButton.disabled = true;
-        debugButton.textContent = 'Testing...';
-        
-        console.log("aiedit-debug: Starting debug test on first comment");
+      function copyServerLogs() {
+        const button = document.getElementById('copyServerLogsButton');
+        const originalText = button.textContent;
+        button.disabled = true;
+        button.textContent = 'Fetching logs...';
         
         google.script.run
-          .withSuccessHandler(function(result) {
-            console.log("aiedit-debug: Debug test completed successfully", result);
-            debugButton.textContent = 'Test Completed ✓';
+          .withSuccessHandler(function(logs) {
+            if (!logs) {
+              button.textContent = 'No logs found';
+              setTimeout(() => {
+                button.disabled = false;
+                button.textContent = originalText;
+              }, 2000);
+              return;
+            }
             
-            // Get and display the logs
-            google.script.run
-              .withSuccessHandler(function(logs) {
-                const progressElement = document.getElementById('progress');
-
-                try {
-                  // Parse the logs (now a single JSON array string)
-                  const logEntries = JSON.parse(logs);
-
-                  // Format logs for display
-                  const formattedLogs = logEntries.map(entry => {
-                    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : '';
-                    const message = entry.message || '';
-                    const data = entry.data ? '\n' + JSON.stringify(entry.data, null, 2) : '';
-                    return `[${timestamp}] ${message}${data}`;
-                  }).join('\n');
-
-                  progressElement.innerHTML = '<div class="progress-item">Debug logs:</div>' +
-                    '<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; ' +
-                    'background: #f5f5f5; padding: 10px; border-radius: 4px; margin: 10px 0; ' +
-                    'max-height: 400px; overflow-y: auto;">' + 
-                    escapeHtml(formattedLogs) + '</pre>';
-                } catch (e) {
-                  // Fallback to raw logs if parsing fails
-                  progressElement.innerHTML = '<div class="progress-item">Debug logs (raw):</div>' +
-                    '<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; ' +
-                    'background: #f5f5f5; padding: 10px; border-radius: 4px; margin: 10px 0; ' +
-                    'max-height: 400px; overflow-y: auto;">' + 
-                    escapeHtml(logs) + '</pre>';
-                }
-              })
-              .getDebugLogs();
+            // Parse logs if they're in JSON format
+            let formattedLogs;
+            try {
+              const parsedLogs = JSON.parse(logs);
+              formattedLogs = JSON.stringify(parsedLogs, null, 2);
+            } catch (e) {
+              formattedLogs = logs; // Use as-is if not JSON
+            }
             
-            setTimeout(() => {
-              debugButton.disabled = false;
-              debugButton.textContent = 'Debug: Test First Comment';
-            }, 3000);
+            navigator.clipboard.writeText(formattedLogs).then(
+              function() {
+                button.textContent = 'Copied! ✓';
+                setTimeout(() => {
+                  button.disabled = false;
+                  button.textContent = originalText;
+                }, 2000);
+              },
+              function(err) {
+                console.error('Failed to copy logs:', err);
+                button.textContent = 'Failed to copy ✗';
+                setTimeout(() => {
+                  button.disabled = false;
+                  button.textContent = originalText;
+                }, 2000);
+              }
+            );
           })
           .withFailureHandler(function(error) {
-            console.error("aiedit-debug: Debug test failed", error);
-            debugButton.textContent = 'Test Failed ✗';
-            debugButton.style.backgroundColor = '#d93025';
-
-            // Get and display the logs
-            google.script.run
-              .withSuccessHandler(function(logs) {
-                const progressElement = document.getElementById('progress');
-                let errorData;
-                try {
-                  errorData = JSON.parse(error.message);
-                } catch (parseError) {
-                  errorData = {error: error.message};
-                }
-                
-                // Try to parse the logs
-                try {
-                  // Split logs by newline and parse each line
-                  const logEntries = JSON.parse(logs);
-                  
-                  // Format logs for display
-                  const formattedLogs = logEntries.map(entry => {
-                    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : '';
-                    const message = entry.message || '';
-                    const data = entry.data ? '\n' + JSON.stringify(entry.data, null, 2) : '';
-                    return `[${timestamp}] ${message}${data}`;
-                  }).join('\n');
-                  
-                  progressElement.innerHTML = '<div class="progress-item status-error">Debug test failed</div>' +
-                    '<div class="progress-item status-error">Error: ' + escapeHtml(errorData.error) + '</div>' +
-                    '<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; ' +
-                    'background: #fce8e6; padding: 10px; border-radius: 4px; margin: 10px 0; ' +
-                    'max-height: 400px; overflow-y: auto;">' + 
-                    escapeHtml(formattedLogs) + '</pre>';
-                } catch (e) {
-                  // Fallback to raw logs if parsing fails
-                  progressElement.innerHTML = '<div class="progress-item status-error">Debug test failed</div>' +
-                    '<div class="progress-item status-error">Error: ' + escapeHtml(error.message) + '</div>' +
-                    '<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; ' +
-                    'background: #fce8e6; padding: 10px; border-radius: 4px; margin: 10px 0; ' +
-                    'max-height: 400px; overflow-y: auto;">' + 
-                    escapeHtml(logs) + '</pre>';
-                }
-              })
-              .getDebugLogs();
-            
+            console.error('Failed to fetch logs:', error);
+            button.textContent = 'Error fetching logs ✗';
             setTimeout(() => {
-              debugButton.disabled = false;
-              debugButton.textContent = 'Debug: Test First Comment';
-              debugButton.style.backgroundColor = '#ff9800';
-            }, 3000);
+              button.disabled = false;
+              button.textContent = originalText;
+            }, 2000);
           })
-          .debugTestFirstComment();
+          .getServerLogs();
       }
 
-      // Add debug button handler
-      document.getElementById('debugButton').addEventListener('click', debugFirstComment);
+      // Unified logging system
+      const unifiedLogger = {
+        get logElement() {
+          const element = document.getElementById('unifiedLogs');
+          if (!element) {
+            console.error('Unified logs element not found');
+            return null;
+          }
+          return element;
+        },
+        maxLogSize: 50000,
+        
+        formatTimestamp: function(isoString) {
+          const date = new Date(isoString);
+          return date.toLocaleTimeString();
+        },
+        
+        appendLog: function(entry) {
+          if (!this.logElement) {
+            console.error('Cannot append log: element not found');
+            return;
+          }
+
+          const timestamp = entry.timestamp ? this.formatTimestamp(entry.timestamp) : new Date().toLocaleTimeString();
+          let logText = `[${timestamp}] `;
+          
+          if (entry.category) {
+            logText += `[${entry.category.toUpperCase()}] `;
+          }
+          
+          logText += entry.message;
+          
+          if (entry.data) {
+            try {
+              const formattedData = typeof entry.data === 'string' ? 
+                entry.data : 
+                JSON.stringify(entry.data, null, 2);
+              logText += '\n' + formattedData;
+            } catch (e) {
+              logText += '\nError formatting data: ' + e.message;
+            }
+          }
+          
+          const currentValue = this.logElement.value;
+          this.logElement.value += (currentValue ? '\n' : '') + logText;
+          
+          if (this.logElement.value.length > this.maxLogSize) {
+            const excess = this.logElement.value.length - this.maxLogSize;
+            this.logElement.value = '...\n[Truncated]\n' + 
+              this.logElement.value.substring(excess + 100);
+          }
+          
+          this.logElement.scrollTop = this.logElement.scrollHeight;
+        },
+        
+        clear: function() {
+          if (!this.logElement) {
+            console.error('Cannot clear logs: element not found');
+            return;
+          }
+          this.logElement.value = '';
+          this.appendLog({ 
+            message: 'Logs cleared',
+            category: 'DEBUG',
+            timestamp: new Date().toISOString()
+          });
+        },
+        
+        copy: async function() {
+          try {
+            if (!this.logElement) throw new Error('Logs element not found');
+            await navigator.clipboard.writeText(this.logElement.value);
+            this.appendLog({ 
+              message: 'Logs copied to clipboard',
+              category: 'DEBUG',
+              timestamp: new Date().toISOString()
+            });
+          } catch (e) {
+            // Fallback method
+            if (!this.logElement) throw new Error('Logs element not found');
+            this.logElement.select();
+            try {
+              document.execCommand('copy');
+              this.appendLog({ 
+                message: 'Logs copied using fallback method',
+                category: 'DEBUG',
+                timestamp: new Date().toISOString()
+              });
+            } catch (fallbackError) {
+              this.appendLog({ 
+                message: 'Please manually copy the logs',
+                category: 'ERROR',
+                timestamp: new Date().toISOString(),
+                data: { error: fallbackError.message }
+              });
+            }
+          }
+        },
+        
+        refresh: function() {
+          google.script.run
+            .withSuccessHandler((response) => {
+              if (response.success) {
+                this.appendLog({
+                  message: 'Server logs retrieved',
+                  category: 'DEBUG',
+                  timestamp: new Date().toISOString(),
+                  data: response.metadata
+                });
+                
+                const logs = response.logs.split('\n');
+                logs.forEach(log => {
+                  try {
+                    const parsed = JSON.parse(log);
+                    this.appendLog(parsed);
+                  } catch (e) {
+                    this.appendLog({
+                      message: log,
+                      category: 'DEBUG',
+                      timestamp: new Date().toISOString()
+                    });
+                  }
+                });
+              } else {
+                this.appendLog({
+                  message: 'Failed to retrieve server logs',
+                  category: 'ERROR',
+                  timestamp: new Date().toISOString(),
+                  data: response.error
+                });
+              }
+            })
+            .withFailureHandler((error) => {
+              this.appendLog({
+                message: 'Error refreshing logs',
+                category: 'ERROR',
+                timestamp: new Date().toISOString(),
+                data: error.toString()
+              });
+            })
+            .getServerLogs();
+        }
+      };
+      
+      // Initialize logging controls
+      document.getElementById('copyLogsButton').addEventListener('click', () => unifiedLogger.copy());
+      document.getElementById('clearLogsButton').addEventListener('click', () => unifiedLogger.clear());
+      document.getElementById('refreshLogsButton').addEventListener('click', () => unifiedLogger.refresh());
+      
+      // Override console.log and console.error
+      const originalConsoleLog = console.log;
+      const originalConsoleError = console.error;
+      
+      console.log = function() {
+        const args = Array.from(arguments);
+        if (typeof unifiedLogger !== 'undefined' && unifiedLogger.appendLog) {
+          unifiedLogger.appendLog({
+            message: args.join(' '),
+            category: 'DEBUG',
+            timestamp: new Date().toISOString()
+          });
+        }
+        originalConsoleLog.apply(console, args);
+      };
+      
+      console.error = function() {
+        const args = Array.from(arguments);
+        if (typeof unifiedLogger !== 'undefined' && unifiedLogger.appendLog) {
+          unifiedLogger.appendLog({
+            message: args.join(' '),
+            category: 'ERROR',
+            timestamp: new Date().toISOString()
+          });
+        }
+        originalConsoleError.apply(console, args);
+      };
+      
+
+      
+      // Initialize logger
+      unifiedLogger.appendLog({
+        message: 'Debug logging system initialized',
+        category: 'debug',
+        timestamp: new Date().toISOString()
+      });
     </script>
   </body>
 </html>

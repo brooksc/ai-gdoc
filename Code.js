@@ -7,11 +7,61 @@
  * and process them using local Ollama models.
  */
 
+// Global logging configuration
+const LOG_CONFIG = {
+  CATEGORIES: {
+    COMMENT: 'comment',
+    TEXT: 'text',
+    ERROR: 'error',
+    DEBUG: 'debug',
+    STATE: 'state'
+  },
+  MAX_LOG_SIZE: 50000 // Maximum number of characters to keep in log
+};
+
+/**
+ * Enhanced logging function that ensures consistent log format
+ * @param {string} category - The category of the log
+ * @param {string} message - The main log message
+ * @param {Object} [data] - Optional data to include in the log
+ */
+function logDebug(category, message, data = null) {
+  const logEntry = {
+    timestamp: new Date().toISOString(),
+    category: category,
+    message: message,
+    data: data,
+    documentId: DocumentApp.getActiveDocument().getId()
+  };
+
+  // Use JSON.stringify with a replacer function to handle circular references
+  const safeStringify = (obj) => {
+    const seen = new Set();
+    return JSON.stringify(obj, (key, value) => {
+      if (typeof value === 'object' && value !== null) {
+        if (seen.has(value)) {
+          return '[Circular]';
+        }
+        seen.add(value);
+      }
+      // Truncate long strings
+      if (typeof value === 'string' && value.length > 500) {
+        return value.substring(0, 500) + '...[truncated]';
+      }
+      return value;
+    }, 2);
+  };
+
+  Logger.log(safeStringify(logEntry));
+}
+
+
+
 // Comment state markers
 const COMMENT_STATE = {
-  ACCEPTED: '[STATE:ACCEPTED]',
-  REJECTED: '[STATE:REJECTED]',
-  PROCESSING: '[STATE:PROCESSING]'
+  ACCEPTED: "[STATE:ACCEPTED]",
+  PROCESSING: "[STATE:PROCESSING]",
+  REJECTED: "[STATE:REJECTED]"
 };
 
 // Retry configuration
@@ -25,10 +75,9 @@ const RETRY_CONFIG = {
  * Sleep for a given number of milliseconds
  * 
  * @param {Number} ms - Milliseconds to sleep
- * @return {Promise} Promise that resolves after the delay
  */
 function sleep(ms) {
-  return new Promise(resolve => Utilities.sleep(ms));
+  Utilities.sleep(ms);
 }
 
 /**
@@ -58,54 +107,267 @@ function calculateBackoffDelay(attempt) {
 function retryCommentUpdate(fileId, commentId, content, options = {}) {
   let lastError = null;
   
-  for (let attempt = 0; attempt < RETRY_CONFIG.MAX_ATTEMPTS; attempt++) {
+  // Validate input parameters
+  if (!fileId || !commentId || !content) {
+    Logger.log("aiedit-debug: Invalid parameters for comment update", {
+      hasFileId: !!fileId,
+      hasCommentId: !!commentId,
+      hasContent: !!content
+    });
+    return { 
+      success: false, 
+      error: new Error("Invalid parameters"),
+      details: { fileId, commentId, contentLength: content ? content.length : 0 }
+    };
+  }
+
+  Logger.log("aiedit-debug: Starting comment update with full details", {
+    fileId: fileId,
+    commentId: commentId,
+    contentLength: content.length,
+    content: content.substring(0, Math.min(100, content.length)) + (content.length > 100 ? "..." : ""),
+    options: JSON.stringify(options),
+    maxAttempts: RETRY_CONFIG.MAX_ATTEMPTS,
+    initialDelay: RETRY_CONFIG.INITIAL_DELAY_MS,
+    maxDelay: RETRY_CONFIG.MAX_DELAY_MS
+  });
+  
+  var attempt;
+  for (attempt = 0; attempt < RETRY_CONFIG.MAX_ATTEMPTS; attempt += 1) {
     try {
-      Logger.log("aiedit-debug: Updating comment (attempt " + (attempt + 1) + ")");
-      Logger.log("aiedit-debug: Comment params:", { content, resolved: options.resolved });
+      Logger.log("aiedit-debug: Starting update attempt", {
+        attemptNumber: attempt + 1,
+        totalAttempts: RETRY_CONFIG.MAX_ATTEMPTS
+      });
       
-      // Use update instead of insert for existing comments
-      Drive.Comments.update({
-        content: content,
-        resolved: !!options.resolved  // Ensure boolean
-      }, fileId, commentId);
+      // Get the current comment first to check for existence and state
+      let comment;
+      try {
+        comment = Drive.Comments.get(fileId, commentId, { 
+          fields: "id,content,resolved,anchor,quotedFileContent"
+        });
+        
+        // Safe substring operation on content
+        let contentPreview = '';
+        if (comment && comment.content) {
+          contentPreview = comment.content.substring(0, Math.min(100, comment.content.length)) + 
+                          (comment.content.length > 100 ? '...' : '');
+        }
+        
+        Logger.log("aiedit-debug: Retrieved current comment state", {
+          commentExists: !!comment,
+          commentId: comment ? comment.id : null,
+          resolved: comment ? comment.resolved : null,
+          status: comment ? comment.status : null,
+          hasContent: comment ? !!comment.content : false,
+          contentLength: comment && comment.content ? comment.content.length : 0,
+          hasQuotedContent: comment ? !!comment.quotedFileContent : false,
+          hasAnchor: comment ? !!comment.anchor : false,
+          hasReplies: comment ? (comment.replies || []).length : 0,
+          contentPreview: contentPreview
+        });
+        
+        if (!comment) {
+          throw new Error('Comment not found');
+        }
+        
+        if (!comment.content && options.resolved) {
+          throw new Error('Cannot resolve comment with no content');
+        }
+        
+      } catch (getError) {
+        Logger.log("aiedit-debug: Failed to get comment", {
+          error: getError.toString(),
+          errorName: getError.name,
+          errorStack: getError.stack,
+          errorMessage: getError.message,
+          commentId: commentId
+        });
+        throw new Error("Failed to get comment: " + getError.message);
+      }
       
-      Logger.log("aiedit-debug: Comment update successful");
+      if (!comment) {
+        Logger.log("aiedit-debug: Comment not found condition triggered", {
+          commentId: commentId,
+          fileId: fileId
+        });
+        throw new Error("Comment not found");
+      }
+      
+      // Validate the update content
+      if (!content || typeof content !== "string") {
+        throw new Error("Invalid content for comment update");
+      }
+
+      // Create update object with validated fields
+      const updateObject = {
+        content: content
+      };
+      
+      // Store pre-update state for verification
+      const preUpdateState = {
+        content: comment.content,
+        resolved: comment.resolved,
+        status: comment.status
+      };
+      
+      Logger.log("aiedit-debug: Preparing comment update", {
+        updateObject: JSON.stringify(updateObject),
+        preUpdateState: JSON.stringify(preUpdateState),
+        attempt: attempt + 1,
+        contentLength: content.length,
+        willResolve: options.resolved === true,
+        commentId: commentId
+      });
+      
+      // Perform the update with proper fields parameter
+      let updatedComment;
+      try {
+        Logger.log("aiedit-debug: Attempting Drive.Comments.update call");
+        updatedComment = Drive.Comments.update(
+          updateObject,
+          fileId,
+          commentId,
+          { fields: 'id,content,resolved' }
+        );
+        Logger.log("aiedit-debug: Drive.Comments.update call completed", {
+          success: !!updatedComment,
+          updatedCommentObject: JSON.stringify(updatedComment)
+        });
+      } catch (updateError) {
+        Logger.log("aiedit-debug: Drive.Comments.update call failed", {
+          error: updateError.toString(),
+          errorName: updateError.name,
+          errorStack: updateError.stack,
+          errorMessage: updateError.message,
+          updateObject: JSON.stringify(updateObject)
+        });
+        throw new Error("Update API call failed: " + updateError.message);
+      }
+      
+      Logger.log("aiedit-debug: Verifying update result", {
+        hasUpdatedComment: !!updatedComment,
+        updatedCommentId: updatedComment ? updatedComment.id : null,
+        updatedResolved: updatedComment ? updatedComment.resolved : null,
+        expectedResolved: options.resolved === true,
+        contentMatch: updatedComment ? (updatedComment.content === content) : false,
+        actualContent: updatedComment ? updatedComment.content.substring(0, 100) + "..." : null,
+        expectedContent: content.substring(0, 100) + "..."
+      });
+      
+      // Verify the update was successful with detailed checks
+      if (!updatedComment) {
+        Logger.log("aiedit-debug: No response from update call", {
+          attempt: attempt + 1,
+          commentId: commentId
+        });
+        throw new Error("Update returned no response");
+      }
+      
+      // Verify content update
+      const contentMatch = updatedComment.content === content;
+      const resolvedMatch = updatedComment.resolved === options.resolved;
+      
+      Logger.log("aiedit-debug: Update verification", {
+        contentMatches: contentMatch,
+        resolvedMatches: resolvedMatch,
+        expectedContent: content.substring(0, Math.min(100, content.length)) + (content.length > 100 ? '...' : ''),
+        actualContent: updatedComment.content.substring(0, Math.min(100, updatedComment.content.length)) + 
+                      (updatedComment.content.length > 100 ? '...' : ''),
+        expectedResolved: options.resolved,
+        actualResolved: updatedComment.resolved,
+        commentId: commentId
+      });
+      
+      if (!contentMatch || !resolvedMatch) {
+        throw new Error(
+          `Update verification failed: ` +
+          `${!contentMatch ? 'Content mismatch ' : ''}` +
+          `${!resolvedMatch ? 'Resolved state mismatch' : ''}`
+        );
+      }
+      
+      if (updatedComment.resolved !== options.resolved) {
+        Logger.log("aiedit-debug: Resolved state mismatch", {
+          expectedResolved: options.resolved,
+          actualResolved: updatedComment.resolved
+        });
+        throw new Error("Resolved state mismatch after update");
+      }
+      
+      Logger.log("aiedit-debug: Comment update successful", {
+        commentId: updatedComment.id,
+        resolved: updatedComment.resolved,
+        contentLength: updatedComment.content.length
+      });
       return { success: true };
+      
     } catch (error) {
       lastError = error;
-      Logger.log("aiedit-debug: Comment update failed: " + error.message);
+      Logger.log("aiedit-debug: Comment update attempt failed", {
+        attempt: attempt + 1,
+        error: error.toString(),
+        errorName: error.name,
+        errorStack: error.stack,
+        errorMessage: error.message,
+        isLastAttempt: attempt === RETRY_CONFIG.MAX_ATTEMPTS - 1
+      });
       
       if (attempt < RETRY_CONFIG.MAX_ATTEMPTS - 1) {
         const delay = calculateBackoffDelay(attempt);
-        Logger.log("aiedit-debug: Retrying after " + delay + "ms");
+        Logger.log("aiedit-debug: Will retry after delay", {
+          delayMs: delay,
+          nextAttemptNumber: attempt + 2,
+          remainingAttempts: RETRY_CONFIG.MAX_ATTEMPTS - (attempt + 1)
+        });
         sleep(delay);
       }
     }
   }
   
-  Logger.log("aiedit-debug: All comment update attempts failed");
+  Logger.log("aiedit-debug: All comment update attempts failed", {
+    totalAttempts: RETRY_CONFIG.MAX_ATTEMPTS,
+    finalError: lastError ? lastError.toString() : null,
+    errorDetails: lastError ? {
+      name: lastError.name,
+      message: lastError.message,
+      stack: lastError.stack
+    } : null
+  });
+  
   return {
     success: false,
-    error: lastError
+    error: lastError,
+    details: {
+      attempts: RETRY_CONFIG.MAX_ATTEMPTS,
+      fileId: fileId,
+      commentId: commentId,
+      contentLength: content.length,
+      wantedResolved: options.resolved === true
+    }
   };
 }
 
 /**
- * Creates the AI Editor menu when the document is opened
+ * Creates the AI Editor menu and opens the sidebar when the document is opened
  */
 function onOpen() {
+  // Create the menu
   DocumentApp.getUi()
-    .createMenu('AI Editor')
-    .addItem('Open Editor', 'showSidebar')
+    .createMenu("AI Editor")
+    .addItem("Open Editor", "showSidebar")
     .addToUi();
+    
+  // Automatically open the sidebar
+  showSidebar();
 }
 
 /**
  * Displays the AI Editor sidebar
  */
 function showSidebar() {
-  const html = HtmlService.createHtmlOutputFromFile('Sidebar.html')
-    .setTitle('AI Editor')
+  const html = HtmlService.createHtmlOutputFromFile("Sidebar.html")
+    .setTitle("AI Editor")
     .setWidth(300);
   DocumentApp.getUi().showSidebar(html);
 }
@@ -118,8 +380,8 @@ function showSidebar() {
  */
 function sanitizeText(text) {
   return text
-    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
-    .replace(/\u2028|\u2029/g, '\n')              // Normalize line separators
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // Remove control characters
+    .replace(/\u2028|\u2029/g, "\n")              // Normalize line separators
     .trim();
 }
 
@@ -161,7 +423,8 @@ function getAIComments() {
     // Get all comments from the document using Drive API
     const response = Drive.Comments.list(fileId, {
       fields: "comments(id,content,quotedFileContent,replies,anchor,resolved)",
-      maxResults: 100
+      pageSize: 100,
+      includeDeleted: false
     });
     
     const comments = response.comments || [];
@@ -170,7 +433,7 @@ function getAIComments() {
     // Filter for AI comments that are either unprocessed or rejected
     const aiComments = comments.filter(comment => {
       const content = comment.content.trim();
-      const isAIComment = content.startsWith('AI:');
+      const isAIComment = content.startsWith("AI:");
       const isActive = !comment.resolved;
       const hasQuotedText = comment.quotedFileContent && comment.quotedFileContent.value;
       const hasValidAnchor = comment.anchor && comment.anchor.length > 0;
@@ -195,7 +458,7 @@ function getAIComments() {
       instruction: comment.content.trim().substring(3).trim(), // Remove 'AI:' prefix
       text: comment.quotedFileContent.value,
       anchor: comment.anchor,
-      state: getCommentState(comment) || 'unprocessed'
+      state: getCommentState(comment) || "unprocessed"
     }));
   } catch (e) {
     Logger.log("aiedit: Error retrieving comments: " + e.message);
@@ -212,6 +475,10 @@ function getAIComments() {
  */
 function validateCommentId(fileId, commentId) {
   if (!commentId || typeof commentId !== 'string' || commentId.length === 0) {
+    Logger.log("aiedit-debug: Invalid comment ID format", {
+      commentId: commentId,
+      type: typeof commentId
+    });
     return false;
   }
   
@@ -219,9 +486,19 @@ function validateCommentId(fileId, commentId) {
     const comment = Drive.Comments.get(fileId, commentId, {
       fields: 'id'
     });
+    Logger.log("aiedit-debug: Comment validation result", {
+      commentId: commentId,
+      exists: !!comment,
+      matches: comment ? (comment.id === commentId) : false
+    });
     return comment && comment.id === commentId;
   } catch (e) {
-    Logger.log("aiedit: Error validating comment ID: " + e.message);
+    Logger.log("aiedit-debug: Error validating comment ID", {
+      commentId: commentId,
+      error: e.toString(),
+      errorName: e.name,
+      errorStack: e.stack
+    });
     return false;
   }
 }
@@ -246,7 +523,7 @@ function verifyTextLocation(fileId, commentId, originalText) {
     
     // Get fresh comment data
     const comment = Drive.Comments.get(fileId, commentId, {
-      fields: 'id,anchor,quotedFileContent,content'
+      fields: "id,anchor,quotedFileContent,content"
     });
     
     if (!comment || !comment.anchor || !comment.quotedFileContent) {
@@ -260,9 +537,9 @@ function verifyTextLocation(fileId, commentId, originalText) {
     const body = doc.getBody();
     
     // Normalize the text for searching
-    const normalizedOriginal = originalText.replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
-      .replace(/\u2028|\u2029/g, '\n')
-      .replace(/\s+/g, ' ')
+    const normalizedOriginal = originalText.replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+      .replace(/\u2028|\u2029/g, "\n")
+      .replace(/\s+/g, " ")
       .trim();
     
     // Find all occurrences of the text
@@ -410,7 +687,7 @@ function highlightConflictArea(location) {
     );
     
     // Reset highlight after 5 seconds
-    Utilities.sleep(5000);
+    sleep(5000);
     location.element.setBackgroundColor(
       location.startOffset,
       location.endOffset,
@@ -465,30 +742,98 @@ function checkDocumentChanges(initialVersion, currentText, location) {
 function applyAIEdit(fileId, commentId, suggestedText, accepted) {
   const doc = DocumentApp.getActiveDocument();
   let originalText = null;
-  let commentResolved = false;
   let location = null;
+  
+  Logger.log("aiedit-debug: Starting applyAIEdit", {
+    fileId: fileId,
+    commentId: commentId,
+    suggestedTextLength: suggestedText ? suggestedText.length : 0,
+    accepted: accepted
+  });
   
   try {
     // Validate inputs
     if (!fileId || !commentId || !suggestedText) {
+      Logger.log("aiedit-debug: Missing required parameters", {
+        hasFileId: !!fileId,
+        hasCommentId: !!commentId,
+        hasSuggestedText: !!suggestedText
+      });
       throw new Error("Missing required parameters for applying AI edit");
     }
     
     if (!validateCommentId(fileId, commentId)) {
+      Logger.log("aiedit-debug: Comment validation failed");
       throw new Error("The comment no longer exists or is inaccessible");
     }
     
-    // Get the comment and verify it exists
-    const comment = Drive.Comments.get(fileId, commentId, {
-      fields: 'id,quotedFileContent,anchor,resolved'
+    // Get the comment and verify it exists with full details
+    let comment;
+    try {
+      // First log the API request we're about to make
+      Logger.log('aiedit-debug: Requesting comment from Drive API', {
+        fileId: fileId,
+        commentId: commentId,
+        requestedFields: 'id,quotedFileContent,anchor,resolved,content,createdTime,modifiedTime,replies'
+      });
+
+      comment = Drive.Comments.get(fileId, commentId, {
+        fields: "id,content,resolved,anchor,quotedFileContent,replies",
+        includeDeleted: false
+      });
+      
+      // Log the raw API response
+      Logger.log("aiedit-debug: Raw Drive API response", {
+        response: JSON.stringify(comment, null, 2)
+      });
+
+      // Log parsed details
+      Logger.log("aiedit-debug: Parsed comment details", {
+        commentId: commentId,
+        exists: !!comment,
+        hasQuotedContent: comment ? !!comment.quotedFileContent : false,
+        quotedContentLength: comment && comment.quotedFileContent ? comment.quotedFileContent.value.length : 0,
+        resolved: comment ? comment.resolved : null,
+        createdTime: comment ? comment.createdTime : null,
+        modifiedTime: comment ? comment.modifiedTime : null,
+        hasAnchor: comment ? !!comment.anchor : false,
+        hasReplies: comment ? (comment.replies && comment.replies.length > 0) : false,
+        commentKeys: comment ? Object.keys(comment) : [],
+        content: comment ? comment.content : null
+      });
+    } catch (getError) {
+      Logger.log("aiedit-debug: Failed to get comment details", {
+        error: getError.toString(),
+        stack: getError.stack,
+        commentId: commentId
+      });
+      throw new Error("Failed to get comment details: " + getError.message);
+    }
+    
+    Logger.log("aiedit-debug: Retrieved comment", {
+      exists: !!comment,
+      hasQuotedContent: comment ? !!comment.quotedFileContent : false,
+      resolved: comment ? comment.resolved : null
     });
     
     if (!comment) {
+      Logger.log("aiedit-debug: Comment not found", { commentId: commentId });
       throw new Error("Could not find the specified comment");
     }
     
     if (comment.resolved) {
+      Logger.log("aiedit-debug: Comment already resolved", {
+        commentId: commentId,
+        status: comment.status,
+        resolved: comment.resolved
+      });
       throw new Error("This comment has already been resolved");
+    }
+    
+    // Validate comment structure
+    if (!comment.content) {
+      Logger.log("aiedit-debug: Comment missing content", { commentId: commentId });
+      throw new Error("Comment is missing content");
     }
     
     if (!comment.quotedFileContent || !comment.quotedFileContent.value) {
@@ -498,92 +843,293 @@ function applyAIEdit(fileId, commentId, suggestedText, accepted) {
     // Store original text
     originalText = comment.quotedFileContent.value;
     
+    // Verify text location before proceeding
+    Logger.log("aiedit-debug: Verifying text location", {
+      originalTextLength: originalText.length
+    });
+    
+    const verifyResult = verifyTextLocation(fileId, commentId, originalText);
+    Logger.log("aiedit-debug: Text location verification result", verifyResult);
+    
+    if (!verifyResult.success) {
+      throw new Error(verifyResult.error || "Could not verify text location");
+    }
+    location = verifyResult.location;
+    
+    // Prepare sanitized text
+    const sanitizedText = sanitizeText(suggestedText);
+    Logger.log("aiedit-debug: Sanitized suggested text", {
+      originalLength: suggestedText.length,
+      sanitizedLength: sanitizedText.length,
+      changed: sanitizedText !== suggestedText
+    });
+    
+    if (!sanitizedText) {
+      throw new Error("The suggested text is empty after sanitization");
+    }
+    
     if (accepted) {
-      // First update the comment to mark it as being processed
-      const processingUpdate = retryCommentUpdate(
-        fileId,
-        commentId,
-        COMMENT_STATE.PROCESSING + '\n\nApplying suggested changes...',
-        { resolved: false }
-      );
-      
-      if (!processingUpdate.success) {
-        throw new Error("Failed to mark comment as processing");
+      try {
+        // Get the text element and verify indices
+        const textElement = location.element.asText();
+        const elementLength = textElement.getText().length;
+        
+        Logger.log("aiedit-debug: Text element verification", {
+          elementLength: elementLength,
+          startOffset: location.startOffset,
+          endOffset: location.endOffset,
+          textToReplaceLength: location.endOffset - location.startOffset + 1
+        });
+        
+        // Validate indices are within bounds
+        if (location.startOffset < 0 || location.endOffset >= elementLength) {
+          throw new Error(`Invalid text range: start=${location.startOffset}, end=${location.endOffset}, length=${elementLength}`);
+        }
+        
+        Logger.log("aiedit-debug: Attempting text replacement");
+        
+        // Replace text in a single operation to maintain consistency
+        Logger.log('aiedit-debug: Text replacement details', {
+          startOffset: location.startOffset,
+          endOffset: location.endOffset,
+          originalText: textElement.getText().substring(location.startOffset, location.endOffset + 1),
+          sanitizedText: sanitizedText
+        });
+        // Use deleteText + insertText instead of replaceText since the API is finicky
+        Logger.log('aiedit-debug: Using deleteText + insertText', {
+          startOffset: location.startOffset,
+          endOffset: location.endOffset,
+          replacement: sanitizedText
+        });
+        textElement.deleteText(location.startOffset, location.endOffset);
+        textElement.insertText(location.startOffset, sanitizedText);
+        
+        // Verify the replacement
+        const currentText = textElement.getText();
+        const verifyText = currentText.substring(location.startOffset, location.startOffset + sanitizedText.length);
+        Logger.log('aiedit-debug: Replacement verification details', {
+          currentTextLength: currentText.length,
+          verifyStartOffset: location.startOffset,
+          verifyEndOffset: location.startOffset + sanitizedText.length,
+          verifyTextLength: verifyText.length,
+          expectedLength: sanitizedText.length
+        });
+        
+        Logger.log("aiedit-debug: Text replacement verification", {
+          expectedLength: sanitizedText.length,
+          actualLength: verifyText.length,
+          matches: verifyText === sanitizedText,
+          verifyText: verifyText,
+          sanitizedText: sanitizedText
+        });
+        
+        // Compare exact lengths first, then content
+        if (verifyText.length !== sanitizedText.length || verifyText !== sanitizedText) {
+          Logger.log("aiedit-debug: Text replacement verification failed", {
+            expectedLength: sanitizedText.length,
+            actualLength: verifyText.length,
+            expectedText: sanitizedText,
+            actualText: verifyText,
+            startOffset: location.startOffset,
+            endOffset: location.endOffset
+          });
+          
+          // If verification fails, attempt to restore original text
+          try {
+            const currentText = textElement.getText();
+            Logger.log("aiedit-debug: Current text state before restoration", {
+              fullTextLength: currentText.length,
+              modifiedSection: currentText.substring(
+                Math.max(0, location.startOffset - 10),
+                Math.min(currentText.length, location.startOffset + sanitizedText.length + 10)
+              )
+            });
+            
+            // Check if text was actually modified
+            const modifiedText = currentText.substring(location.startOffset, location.startOffset + sanitizedText.length);
+            if (modifiedText === sanitizedText) {
+              Logger.log("aiedit-debug: Restoring original text");
+              // Use deleteText + insertText instead of replaceText
+              textElement.deleteText(location.startOffset, location.startOffset + sanitizedText.length - 1);
+              textElement.insertText(location.startOffset, originalText);
+              
+              // Verify restoration
+              const restoredText = textElement.getText().substring(location.startOffset, location.startOffset + originalText.length);
+              if (restoredText !== originalText) {
+                throw new Error("Failed to restore original text");
+              }
+            } else {
+              Logger.log("aiedit-debug: Text was not modified as expected", {
+                expectedModification: sanitizedText,
+                actualText: modifiedText
+              });
+            }
+
+             } catch (restoreError) {
+                Logger.log("aiedit-debug: Error during text restoration attempt", {
+                    error: restoreError.message,
+                    stack: restoreError.stack
+                });
+             }
+          throw new Error("Failed to verify text replacement");
+        }
+        
+
+
+        // Update comment to mark as accepted
+        Logger.log("aiedit-debug: Attempting to mark comment as accepted", {
+          fileId: fileId,
+          commentId: commentId,
+          textLength: sanitizedText.length,
+          resolved: true,
+          originalCommentContent: comment ? comment.content : null
+        });
+        
+        // First update the comment content
+        const acceptUpdate = retryCommentUpdate(
+          fileId,
+          commentId,
+          COMMENT_STATE.ACCEPTED + '\n\nChanges applied successfully:\n\n' +
+          'Original text:\n' + originalText + '\n\n' +
+          'New text:\n' + sanitizedText
+        );
+
+        // Then create a resolving reply
+        if (acceptUpdate.success) {
+          try {
+            Logger.log("aiedit-debug: Creating resolving reply");
+            const reply = Drive.Replies.create(
+              {
+                action: 'resolve',
+                content: 'Accepted AI suggestion'
+              },
+              fileId,
+              commentId,
+              { fields: 'id,action' }
+            );
+            Logger.log("aiedit-debug: Created resolving reply", {
+              replyId: reply.id,
+              action: reply.action
+            });
+          } catch (error) {
+            Logger.log("aiedit-debug: Failed to create resolving reply", {
+              error: error.toString()
+            });
+            // Don't throw here - the text was updated successfully
+            // Just log that we couldn't resolve the comment
+          }
+        }
+        
+        if (!acceptUpdate.success) {
+          Logger.log("aiedit-debug: Failed to mark comment as accepted", {
+            error: acceptUpdate.error,
+            details: acceptUpdate.details,
+            fileId: fileId,
+            commentId: commentId
+          });
+          
+          // If comment update fails, restore original text
+          const currentText = textElement.getText();
+            //check and see if it's equal first.
+            if (currentText.substring(location.startOffset, location.startOffset + sanitizedText.length) === sanitizedText)            {
+              textElement.deleteText(location.startOffset, location.startOffset + sanitizedText.length - 1);
+              textElement.insertText(location.startOffset, originalText);
+          }
+          throw new Error("Failed to mark comment as accepted: " + 
+            (acceptUpdate.error ? acceptUpdate.error.message : "Unknown error") +
+            "\nDetails: " + JSON.stringify(acceptUpdate.details));
+        }
+        
+        Logger.log("aiedit-debug: Successfully marked comment as accepted");
+        return true;
+      } catch (error) {
+        Logger.log("aiedit-debug: Error during text replacement", {
+          error: error.toString(),
+          stack: error.stack
+        });
+        
+        // If anything fails during text replacement, restore original text *only if* it was changed.
+        try {
+          const textElement = location.element.asText();
+          const currentText = textElement.getText();
+
+          // Check if text was actually modified using exact length comparison
+          const modifiedText = currentText.substring(location.startOffset, location.startOffset + sanitizedText.length);
+          
+          Logger.log("aiedit-debug: Checking for text restoration after error", {
+            modifiedTextLength: modifiedText.length,
+            expectedLength: sanitizedText.length,
+            matches: modifiedText === sanitizedText
+          });
+          
+          // Log the current state for debugging
+          Logger.log("aiedit-debug: Text state before restoration", {
+            currentText: currentText.substring(Math.max(0, location.startOffset - 10), 
+                                              Math.min(currentText.length, location.startOffset + sanitizedText.length + 10)),
+            modifiedTextActual: modifiedText,
+            sanitizedTextExpected: sanitizedText,
+            startOffset: location.startOffset,
+            originalTextLength: originalText.length
+          });
+
+          if (modifiedText.length === sanitizedText.length && modifiedText === sanitizedText) {
+            Logger.log("aiedit-debug: Restoring text after error");
+            // Text *was* modified, so restore the original in a single operation
+            textElement.replaceText(location.startOffset, 
+                                  location.startOffset + sanitizedText.length - 1,
+                                  originalText);
+            
+            // Verify restoration
+            const restoredText = textElement.getText().substring(location.startOffset,
+                                                               location.startOffset + originalText.length);
+            Logger.log("aiedit-debug: Text restoration verification", {
+              restoredText: restoredText,
+              originalText: originalText,
+              matches: restoredText === originalText
+            });
+            
+            if (restoredText !== originalText) {
+              throw new Error("Failed to restore original text after error");
+            }
+          } else {
+            Logger.log("aiedit-debug: No restoration needed - text was not modified");
+          }
+
+        } catch (restoreError) {
+          Logger.log("aiedit-debug: Error during text restoration", {
+            error: restoreError.toString(),
+            stack: restoreError.stack
+          });
+          error.message += "\nAdditionally, failed to restore original text: " + restoreError.message;
+        }
+        throw error;
       }
-      
-      // Verify text location before making changes
-      const verifyResult = verifyTextLocation(fileId, commentId, originalText);
-      if (!verifyResult.success) {
-        throw new Error(verifyResult.error || "Could not verify text location");
-      }
-      
-      location = verifyResult.location;
-      
-      // Prepare sanitized text
-      const sanitizedText = sanitizeText(suggestedText);
-      if (!sanitizedText) {
-        throw new Error("The suggested text is empty after sanitization");
-      }
-      
-      // Replace the text
-      location.element.asText().deleteText(location.startOffset, location.endOffset);
-      location.element.asText().insertText(location.startOffset, sanitizedText);
-      
-      // Verify the replacement
-      const verifyText = location.element.asText().getText()
-        .substring(location.startOffset, location.startOffset + sanitizedText.length);
-      
-      if (verifyText !== sanitizedText) {
-        throw new Error("Failed to verify text replacement");
-      }
-      
-      // Update comment to mark as accepted
-      const acceptUpdate = retryCommentUpdate(
-        fileId,
-        commentId,
-        COMMENT_STATE.ACCEPTED + '\n\nChanges applied successfully:\n\n' +
-        'Original text:\n' + originalText + '\n\n' +
-        'New text:\n' + sanitizedText,
-        { resolved: true }
-      );
-      
-      if (!acceptUpdate.success) {
-        // If comment update fails, restore original text
-        location.element.asText().deleteText(location.startOffset, location.endOffset);
-        location.element.asText().insertText(location.startOffset, originalText);
-        throw new Error("Failed to mark comment as accepted");
-      }
-      
-      return true;
-      
     } else {
       // For rejections, simply update the comment
+      Logger.log("aiedit-debug: Attempting to mark comment as rejected");
       const rejectUpdate = retryCommentUpdate(
         fileId,
         commentId,
-        COMMENT_STATE.REJECTED + '\n\nChanges rejected.\n\n' +
-        'You can edit the comment and try again.',
+        COMMENT_STATE.REJECTED + '\n\nChanges rejected.\n\nYou can edit the comment and try again.',
         { resolved: false }
       );
       
       if (!rejectUpdate.success) {
+        Logger.log("aiedit-debug: Failed to mark comment as rejected", {
+          error: rejectUpdate.error
+        });
         throw new Error("Failed to mark comment as rejected");
       }
       
+      Logger.log("aiedit-debug: Successfully marked comment as rejected");
       return true;
     }
     
   } catch (e) {
-    // Only restore text if we made changes and have location info
-    if (location && accepted) {
-      try {
-        location.element.asText().deleteText(location.startOffset, location.endOffset);
-        location.element.asText().insertText(location.startOffset, originalText);
-      } catch (restoreError) {
-        e.message += "\nAdditionally, failed to restore original text: " + restoreError.message;
-      }
-    }
-    
+    Logger.log("aiedit-debug: Final error in applyAIEdit", {
+      error: e.toString(),
+      stack: e.stack
+    });
     throw new Error(
       "Failed to apply changes: " + e.message + "\n\n" +
       "Please try again. If the problem persists, " +
@@ -648,6 +1194,7 @@ function debugTestFirstComment() {
   const logs = [];
   function log(message, data = null) {
     const entry = {
+
       timestamp: new Date().toISOString(),
       message: message,
       data: data
@@ -670,8 +1217,9 @@ function debugTestFirstComment() {
     // Get comments
     log("Fetching comments");
     const comments = Drive.Comments.list(fileId, {
-      fields: 'comments(id,content,quotedFileContent,anchor,resolved)',
-      maxResults: 100
+      fields: "comments(id,content,quotedFileContent,anchor,resolved)",
+      pageSize: 100,
+      includeDeleted: false
     }).comments || [];
     
     log("Retrieved comments", { count: comments.length });
@@ -747,54 +1295,23 @@ function debugTestFirstComment() {
     location.element.asText().deleteText(location.startOffset, location.endOffset);
     location.element.asText().insertText(location.startOffset, testText);
 
-    // Re-find the location of the test text
-    log("Finding new location after replacement");
-    const newLocation = verifyTextLocation(fileId, comment.id, testText);
-    
-    if (!newLocation) {
-      throw new Error("Could not verify location after replacement");
-    }
-    
-    log("New location after replacement", newLocation);
-
     // Pause briefly to make the change visible
-    Utilities.sleep(2000);
+    sleep(2000);
 
     try {
-      // Restore original text using new location
-      log("Restoring original text", {
-        startOffset: newLocation.startOffset,
-        endOffset: newLocation.endOffset,
-        originalText: originalText
-      });
-      
-      newLocation.element.asText().deleteText(newLocation.startOffset, newLocation.endOffset);
-      newLocation.element.asText().insertText(newLocation.startOffset, originalText);
+      // Restore original text. Get a *fresh* location using the *original* text.
+      log("Restoring original text");
+      const finalLocation = verifyTextLocation(fileId, comment.id, originalText); // Use originalText!
 
-      // Verify restoration
-      const finalLocation = verifyTextLocation(fileId, comment.id, originalText);
       if (!finalLocation) {
-        throw new Error("Could not verify final text restoration");
+        throw new Error("Could not verify location for restoration");
       }
 
-      const restoredText = finalLocation.element.asText().getText()
-        .substring(finalLocation.startOffset, finalLocation.startOffset + originalText.length);
-      
-      log("Restoration verification", {
-        expected: originalText,
-        actual: restoredText,
-        matches: restoredText === originalText
-      });
-
-      if (restoredText !== originalText) {
-        throw new Error("Failed to restore original text exactly");
-      }
+      finalLocation.element.asText().deleteText(finalLocation.startOffset, finalLocation.endOffset);
+      finalLocation.element.asText().insertText(finalLocation.startOffset, originalText);
     } catch (restoreError) {
-      log("Error during text restoration", {
-        error: restoreError.message,
-        stack: restoreError.stack
-      });
-      throw new Error("Failed to restore original text: " + restoreError.message);
+        log("Error during text restoration", { error: restoreError.message, stack: restoreError.stack});
+        throw new Error("Failed to restore original text: " + restoreError.message);
     }
 
     log("Debug test completed successfully");
@@ -824,4 +1341,116 @@ function getDebugLogs() {
   const logs = cache.get('debugLogs');
   cache.remove('debugLogs'); // Clear the cache after retrieval
   return logs || '[]'; // Return empty array string if no logs
+}
+
+/**
+ * Save the selected model to user properties
+ * 
+ * @param {String} modelName - Name of the selected model
+ */
+function saveSelectedModel(modelName) {
+  const userProperties = PropertiesService.getUserProperties();
+  userProperties.setProperty('selectedModel', modelName);
+}
+
+/**
+ * Get the previously selected model from user properties
+ * 
+ * @return {String} Previously selected model name or empty string
+ */
+function getSelectedModel() {
+  const userProperties = PropertiesService.getUserProperties();
+  return userProperties.getProperty('selectedModel') || '';
+}
+
+/**
+ * Get server logs for debugging
+ * 
+ * @return {String} JSON string of logs
+ */
+function getServerLogs() {
+  try {
+    const logs = [];
+    const now = new Date();
+    
+    // Get standard Logger logs
+    const standardLogs = Logger.getLog();
+    if (standardLogs) {
+      const logLines = standardLogs.split('\n').filter(line => line.trim());
+      logLines.forEach(line => {
+        let type = 'info';
+        let message = line;
+        
+        // Try to parse debug/error indicators
+        if (line.includes('aiedit-debug:')) {
+          type = 'debug';
+          message = line.split('aiedit-debug:')[1].trim();
+          try {
+            // Try to parse JSON data if present
+            const jsonStart = message.indexOf('{');
+            if (jsonStart > -1) {
+              const jsonPart = message.substring(jsonStart);
+              const data = JSON.parse(jsonPart);
+              message = message.substring(0, jsonStart).trim();
+              logs.push({
+                timestamp: now.toISOString(),
+                type: type,
+                message: message,
+                data: data
+              });
+              return;
+            }
+          } catch (e) {
+            // If JSON parsing fails, continue with regular message
+          }
+        } else if (line.toLowerCase().includes('error')) {
+          type = 'error';
+        }
+        
+        logs.push({
+          timestamp: now.toISOString(),
+          type: type,
+          message: message.trim()
+        });
+      });
+    }
+    
+    // Get debug session logs from cache
+    const cache = CacheService.getScriptCache();
+    const debugLogs = cache.get('debugLogs');
+    if (debugLogs) {
+      try {
+        const parsedDebugLogs = JSON.parse(debugLogs);
+        logs.push(...parsedDebugLogs);
+      } catch (e) {
+        logs.push({
+          timestamp: now.toISOString(),
+          type: 'error',
+          message: 'Failed to parse debug logs: ' + e.message
+        });
+      }
+    }
+    
+    // If no logs found at all
+    if (logs.length === 0) {
+      return JSON.stringify({
+        timestamp: now.toISOString(),
+        type: 'info',
+        message: "No logs found in the last 24 hours"
+      });
+    }
+    
+    // Sort logs by timestamp
+    logs.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    
+    return JSON.stringify(logs, null, 2);
+    
+  } catch (e) {
+    return JSON.stringify({
+      timestamp: new Date().toISOString(),
+      type: 'error',
+      message: 'Failed to retrieve logs: ' + e.message,
+      stack: e.stack
+    });
+  }
 }
