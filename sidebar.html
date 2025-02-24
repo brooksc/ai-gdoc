@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-
+<!-- Mon Feb 24 14:36:52 PST 2025 -->
   <head>
     <base target="_top">
     <meta charset="utf-8">
@@ -69,7 +69,7 @@
       
       /* Logging section styles */
       .logging-section {
-        margin-top: 15px;
+        margin-top: 0;
         border: 1px solid #ddd;
         border-radius: 4px;
         background: #fff;
@@ -275,31 +275,202 @@
         background: #e6f4ea;
         color: #137333;
       }
+      .help-section {
+        margin-top: 20px;
+        padding: 15px;
+        background: #f8f9fa;
+        border-radius: 4px;
+        border: 1px solid #eee;
+      }
+      
+      /* Settings button and section styles */
+      .settings-button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 20px;
+        color: #5f6368;
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 13px;
+        padding: 8px;
+        gap: 5px;
+        width: 100%;
+      }
+      
+      .settings-panel {
+        display: none;
+        margin-top: 10px;
+        padding: 15px;
+        background: #f8f9fa;
+        border-radius: 4px;
+        border: 1px solid #eee;
+      }
+      
+      .settings-panel.visible {
+        display: block;
+      }
+      
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+      
+      .toggle-switch {
+        position: relative;
+        display: inline-block;
+        width: 40px;
+        height: 20px;
+      }
+      
+      .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      
+      .toggle-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #ccc;
+        border-radius: 10px;
+        transition: .4s;
+      }
+      
+      .toggle-slider:before {
+        position: absolute;
+        content: "";
+        height: 16px;
+        width: 16px;
+        left: 2px;
+        bottom: 2px;
+        background-color: white;
+        border-radius: 50%;
+        transition: .4s;
+      }
+      
+      input:checked + .toggle-slider {
+        background-color: #1a73e8;
+      }
+      
+      input:checked + .toggle-slider:before {
+        transform: translateX(20px);
+      }
+      
+      /* Document-wide prompt feature */
+      .doc-prompt-container {
+        margin-top: 20px;
+        padding: 15px;
+        background: #f0f7ff;
+        border-radius: 4px;
+        border: 1px solid #d0e3ff;
+        display: block; /* Ensure it's visible */
+      }
+      
+      .doc-prompt-title {
+        font-weight: bold;
+        margin-bottom: 10px;
+        color: #1a73e8;
+      }
+      
+      .prompt-textarea {
+        width: 100%;
+        min-height: 80px;
+        padding: 8px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+        margin-bottom: 10px;
+        resize: vertical;
+      }
+      
+      .prompt-library-container {
+        margin-bottom: 10px;
+      }
+      
+      .prompt-library-select {
+        width: 100%;
+        padding: 8px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+        margin-bottom: 5px;
+      }
+      
+      .prompt-save-container {
+        display: flex;
+        margin-top: 5px;
+        gap: 5px;
+      }
+      
+      .prompt-save-input {
+        flex-grow: 1;
+        padding: 5px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+      }
+      
+      .prompt-save-button {
+        background-color: #1a73e8;
+        color: white;
+        border: none;
+        padding: 5px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      
+      .prompt-action-container {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      
+      .prompt-submit-button {
+        flex-grow: 1;
+        background-color: #1a73e8;
+      }
+      
+      .prompt-clear-button {
+        background-color: #5f6368;
+      }
+
+      /* Debug section styles */
+      .debug-section {
+        display: none;
+        margin-top: 20px;
+      }
+      
+      .debug-section.visible {
+        display: block;
+      }
+      
+      /* Streaming response styles */
+      .streaming-response {
+        margin-top: 10px;
+        margin-bottom: 10px;
+      }
+      
+      .streaming-text {
+        max-height: 150px;
+        overflow-y: auto;
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        padding: 8px;
+        font-family: monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
     </style>
   </head>
   <body>
     <h3>AI Editor</h3>
     <div class="container">
-      <button id="debugButton" style="background-color: #ff9800; margin-bottom: 10px;">Debug: Test First Comment</button>
-      
-      <!-- Unified logging section -->
-      <div class="logging-section">
-        <div class="logging-header">
-          <h4>Debug Logs</h4>
-          <button id="copyLogsButton" class="copy-button" title="Copy logs to clipboard">
-            <span class="copy-icon">📋</span> Copy
-          </button>
-          <button id="clearLogsButton" class="clear-button" title="Clear logs">
-            <span class="clear-icon">🗑️</span> Clear
-          </button>
-          <button id="refreshLogsButton" class="refresh-button" title="Refresh logs">
-            <span class="refresh-icon">🔄</span> Refresh
-          </button>
-        </div>
-        <textarea id="unifiedLogs" readonly class="unified-logs" 
-                  placeholder="Debug logs will appear here..."></textarea>
-      </div>
-      
       <div class="model-selector">
         <div style="display: flex; align-items: center;">
           <label for="modelSelect">Select Model:</label>
@@ -308,6 +479,28 @@
         <select id="modelSelect">
           <option value="">Loading models...</option>
         </select>
+      </div>
+      
+      <!-- Document-wide prompt feature -->
+      <div class="doc-prompt-container" style="display: block !important;">
+        <div class="doc-prompt-title">Process Entire Document</div>
+        
+        <div class="prompt-library-container">
+          <select id="promptLibrarySelect" class="prompt-library-select">
+            <option value="">Select a prompt template...</option>
+          </select>
+          <div class="prompt-save-container">
+            <input type="text" id="promptSaveName" class="prompt-save-input" placeholder="Name for this prompt">
+            <button id="promptSaveButton" class="prompt-save-button">Save</button>
+          </div>
+        </div>
+        
+        <textarea id="docPromptInput" class="prompt-textarea" placeholder="Enter your prompt here..."></textarea>
+        
+        <div class="prompt-action-container">
+          <button id="docPromptSubmit" class="prompt-submit-button">Process Document</button>
+          <button id="docPromptClear" class="prompt-clear-button">Clear</button>
+        </div>
       </div>
       
       <div class="ai-comment-counter">
@@ -321,6 +514,59 @@
         <div id="currentProcessing"></div>
         <div id="revisionsList"></div>
         <div id="progress"></div>
+      </div>
+      
+      <!-- Main content ends -->
+      
+      <!-- How to use section -->
+      <div class="help-section">
+        <h3>How to use:</h3>
+        <ol>
+          <li>Highlight text you want to edit</li>
+          <li>Add a comment starting with "AI:" followed by your instruction</li>
+          <li>Click "Generate Suggestions" to process all AI comments</li>
+          <li>Review and accept/reject each suggestion</li>
+        </ol>
+      </div>
+      
+      <!-- Settings button -->
+      <button id="settingsButton" class="settings-button">
+        <span id="settingsIcon">⚙️</span> Settings
+      </button>
+      
+      <!-- Settings panel -->
+      <div id="settingsPanel" class="settings-panel">
+        <div class="toggle-row">
+          <span>Show Debug Tools</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="debug-toggle">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+      
+      <!-- Debug section -->
+      <div id="debugSection" class="debug-section">
+        <!-- Debug button -->
+        <button id="debugButton" style="background-color: #ff9800; margin-bottom: 10px; width: 100%;">Debug: Test First Comment</button>
+        
+        <!-- Unified logging section -->
+        <div class="logging-section" style="margin-bottom: 20px;">
+          <div class="logging-header">
+            <h4>Debug Logs</h4>
+            <button id="copyLogsButton" class="copy-button" title="Copy logs to clipboard">
+              <span class="copy-icon">📋</span> Copy
+            </button>
+            <button id="clearLogsButton" class="clear-button" title="Clear logs">
+              <span class="clear-icon">🗑️</span> Clear
+            </button>
+            <button id="refreshLogsButton" class="refresh-button" title="Refresh logs">
+              <span class="refresh-icon">🔄</span> Refresh
+            </button>
+          </div>
+          <textarea id="unifiedLogs" readonly class="unified-logs" 
+                    placeholder="Debug logs will appear here..."></textarea>
+        </div>
       </div>
     </div>
 
@@ -340,6 +586,579 @@
       let isCancelled = false;
       let processingTimeout = null;
       let isApiCallInProgress = false;
+      
+      // Constants
+      const TIMEOUT_MS = 300000; // 300 second timeout (5 minutes)
+      
+      // Initialize settings
+      let userSettings = {
+        showDebugTools: false,
+        timeout: TIMEOUT_MS
+      };
+      
+      // Define the prompt library with default prompts
+      const promptLibrary = {
+        DEFAULT_PROMPTS: [
+          {
+            name: "Improve Clarity",
+            prompt: "Improve the clarity of this text while maintaining its original meaning. Make it more concise and easier to understand."
+          },
+          {
+            name: "Fix Grammar & Spelling",
+            prompt: "Correct any grammar, spelling, or punctuation errors in this text without changing its meaning."
+          },
+          {
+            name: "Make More Formal",
+            prompt: "Rewrite this text in a more formal and professional tone while preserving the original meaning."
+          },
+          {
+            name: "Make More Casual",
+            prompt: "Rewrite this text in a more casual and conversational tone while preserving the original meaning."
+          },
+          {
+            name: "Strengthen Argument",
+            prompt: "Strengthen the arguments in this text by adding more compelling evidence, logic, and persuasive language."
+          },
+          {
+            name: "Simplify Language",
+            prompt: "Simplify the language in this text to make it more accessible to a general audience. Aim for clarity and readability."
+          },
+          {
+            name: "Add Examples",
+            prompt: "Add relevant examples to illustrate the key points in this text, making the concepts more concrete and easier to understand."
+          },
+          {
+            name: "Improve Structure",
+            prompt: "Improve the structure and organization of this text to enhance flow and readability. Ensure logical progression of ideas."
+          },
+          {
+            name: "Technical Review",
+            prompt: "Review this technical content for accuracy, clarity, and completeness. Suggest improvements while maintaining technical precision."
+          },
+          {
+            name: "Executive Summary",
+            prompt: "Create a concise executive summary of this document, highlighting the most important points and conclusions."
+          }
+        ],
+        savedPrompts: []
+      };
+      
+      // Initialize the prompt library
+      function initPromptLibrary() {
+        // Ensure the document-wide prompt container is visible
+        const docPromptContainer = document.querySelector('.doc-prompt-container');
+        console.log('Document prompt container found:', !!docPromptContainer);
+        if (docPromptContainer) {
+          docPromptContainer.style.display = 'block';
+          console.log('Made document prompt container visible');
+        } else {
+          console.error('Could not find document prompt container');
+        }
+        
+        // Load saved prompts from server
+        google.script.run
+          .withSuccessHandler(function(promptsJson) {
+            if (promptsJson) {
+              try {
+                const savedPrompts = JSON.parse(promptsJson);
+                promptLibrary.savedPrompts = savedPrompts;
+                console.log(`Loaded ${savedPrompts.length} saved prompts`);
+              } catch (e) {
+                console.error("Error parsing saved prompts:", e);
+              }
+            }
+            
+            // Populate the prompt dropdown
+            populatePromptDropdown();
+          })
+          .withFailureHandler(function(error) {
+            console.error("Failed to load prompt library:", error);
+          })
+          .getPromptLibrary();
+        
+        // Set up event listeners for prompt library
+        document.getElementById('promptLibrarySelect').addEventListener('change', handlePromptSelect);
+        document.getElementById('promptSaveButton').addEventListener('click', savePrompt);
+        document.getElementById('docPromptSubmit').addEventListener('click', processDocumentWithPrompt);
+        document.getElementById('docPromptClear').addEventListener('click', clearDocumentPrompt);
+      }
+      
+      // Populate the prompt dropdown with default and saved prompts
+      function populatePromptDropdown() {
+        const select = document.getElementById('promptLibrarySelect');
+        select.innerHTML = '<option value="">Select a prompt template...</option>';
+        
+        // Add default prompts group
+        const defaultGroup = document.createElement('optgroup');
+        defaultGroup.label = 'Default Prompts';
+        
+        promptLibrary.DEFAULT_PROMPTS.forEach(prompt => {
+          const option = document.createElement('option');
+          option.value = 'default:' + prompt.name;
+          option.textContent = prompt.name;
+          defaultGroup.appendChild(option);
+        });
+        
+        select.appendChild(defaultGroup);
+        
+        // Add saved prompts group if any exist
+        if (promptLibrary.savedPrompts && promptLibrary.savedPrompts.length > 0) {
+          const savedGroup = document.createElement('optgroup');
+          savedGroup.label = 'Your Saved Prompts';
+          
+          promptLibrary.savedPrompts.forEach(prompt => {
+            const option = document.createElement('option');
+            option.value = 'saved:' + prompt.name;
+            option.textContent = prompt.name;
+            savedGroup.appendChild(option);
+          });
+          
+          select.appendChild(savedGroup);
+        }
+      }
+      
+      // Handle prompt selection from dropdown
+      function handlePromptSelect(e) {
+        const value = e.target.value;
+        if (!value) return;
+        
+        const [type, name] = value.split(':');
+        let selectedPrompt;
+        
+        if (type === 'default') {
+          selectedPrompt = promptLibrary.DEFAULT_PROMPTS.find(p => p.name === name);
+        } else if (type === 'saved') {
+          selectedPrompt = promptLibrary.savedPrompts.find(p => p.name === name);
+        }
+        
+        if (selectedPrompt) {
+          document.getElementById('docPromptInput').value = selectedPrompt.prompt;
+        }
+      }
+      
+      // Save a new prompt to the library
+      function savePrompt() {
+        const nameInput = document.getElementById('promptSaveName');
+        const promptInput = document.getElementById('docPromptInput');
+        
+        const name = nameInput.value.trim();
+        const prompt = promptInput.value.trim();
+        
+        if (!name) {
+          alert('Please enter a name for your prompt');
+          return;
+        }
+        
+        if (!prompt) {
+          alert('Please enter a prompt');
+          return;
+        }
+        
+        // Check if name already exists
+        const exists = promptLibrary.savedPrompts.some(p => p.name === name);
+        if (exists) {
+          if (!confirm(`A prompt named "${name}" already exists. Do you want to replace it?`)) {
+            return;
+          }
+          // Remove the existing prompt with the same name
+          promptLibrary.savedPrompts = promptLibrary.savedPrompts.filter(p => p.name !== name);
+        }
+        
+        // Add the new prompt
+        promptLibrary.savedPrompts.push({ name, prompt });
+        
+        // Save to server
+        google.script.run
+          .withSuccessHandler(function() {
+            console.log('Prompt saved successfully');
+            nameInput.value = '';
+            populatePromptDropdown();
+          })
+          .withFailureHandler(function(error) {
+            console.error('Failed to save prompt:', error);
+            alert('Failed to save prompt: ' + error);
+          })
+          .savePromptLibrary(JSON.stringify(promptLibrary.savedPrompts));
+      }
+      
+      // Process the entire document with the selected prompt
+      function processDocumentWithPrompt() {
+        const promptInput = document.getElementById('docPromptInput');
+        const prompt = promptInput.value.trim();
+        
+        if (!prompt) {
+          alert('Please enter a prompt');
+          return;
+        }
+        
+        if (!selectedModel) {
+          alert('Please select a model');
+          return;
+        }
+        
+        if (isProcessing) {
+          alert('Please wait for the current process to complete');
+          return;
+        }
+        
+        // Show processing overlay
+        showProcessingOverlay('Retrieving document text...');
+        isProcessing = true;
+        updateProcessButtonState();
+        
+        // Get the document text as markdown
+        google.script.run
+          .withSuccessHandler(function(documentMarkdown) {
+            if (!documentMarkdown) {
+              hideProcessingOverlay();
+              isProcessing = false;
+              updateProcessButtonState();
+              alert('Failed to retrieve document text');
+              return;
+            }
+            
+            // Create a progress container
+            const progressElement = document.getElementById('progress');
+            const sessionContainer = document.createElement('div');
+            sessionContainer.className = 'progress-item';
+            sessionContainer.style.marginBottom = '20px';
+            
+            const headerContainer = document.createElement('div');
+            headerContainer.style.display = 'flex';
+            headerContainer.style.alignItems = 'center';
+            headerContainer.style.gap = '8px';
+            
+            const headerText = document.createElement('div');
+            headerText.innerHTML = '<strong>Document Processing:</strong>';
+            
+            headerContainer.appendChild(headerText);
+            sessionContainer.appendChild(headerContainer);
+            
+            // Add streaming container
+            const streamingContainer = document.createElement('div');
+            streamingContainer.className = 'streaming-response';
+            streamingContainer.innerHTML = `
+              <div>Processing document with prompt: "${escapeHtml(prompt.substring(0, 50) + (prompt.length > 50 ? '...' : ''))}"</div>
+              <div class="streaming-text"></div>
+            `;
+            sessionContainer.appendChild(streamingContainer);
+            
+            progressElement.insertBefore(sessionContainer, progressElement.firstChild);
+            
+            // Update overlay
+            showProcessingOverlay('Processing document with AI...');
+            
+            // Prepare the API request with formatting preservation instructions
+            const apiUrl = 'http://localhost:11434/api/generate';
+            const formattingInstructions = `
+IMPORTANT: Your response MUST preserve the document's formatting structure. 
+- Maintain all heading levels (# for H1, ## for H2, etc.)
+- Preserve bullet points and numbered lists
+- Keep paragraph structure
+- Format your entire response in proper markdown
+`;
+            const requestBody = {
+              model: selectedModel,
+              prompt: `${formattingInstructions}\n\n${prompt}\n\nDocument content (in markdown format):\n${documentMarkdown}`,
+              stream: true
+            };
+            
+            // Create an AbortController for timeout
+            const controller = new AbortController();
+            const signal = controller.signal;
+            
+            // Use user's timeout setting if available, otherwise use default
+            const timeoutToUse = userSettings.timeout || TIMEOUT_MS;
+            
+            // Set a timeout to abort the fetch after the specified time
+            const timeoutId = setTimeout(() => {
+              controller.abort();
+              console.error(`API call timed out after ${timeoutToUse}ms`);
+              
+              streamingContainer.innerHTML += `
+                <div class="progress-item status-error">
+                  <strong>Error:</strong> Request timed out after ${timeoutToUse/1000} seconds.
+                </div>
+              `;
+              
+              hideProcessingOverlay();
+              isProcessing = false;
+              updateProcessButtonState();
+            }, timeoutToUse);
+            
+            // Make the API request
+            fetch(apiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(requestBody),
+              signal: signal
+            })
+            .then(response => {
+              if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+              }
+              
+              // Get a reader from the response body stream
+              const reader = response.body.getReader();
+              let accumulatedResponse = '';
+              const streamingText = streamingContainer.querySelector('.streaming-text');
+              
+              // Function to process the stream
+              function processStream() {
+                return reader.read().then(({ done, value }) => {
+                  // If the stream is done, process the final response
+                  if (done) {
+                    console.log('Stream complete');
+                    clearTimeout(timeoutId);
+                    
+                    // Process the accumulated response
+                    const sanitizedResponse = sanitizeResponse(accumulatedResponse);
+                    
+                    // Verify the text location
+                    verifyTextLocation(currentComment, sanitizedResponse, commentsList.indexOf(currentComment));
+                    return;
+                  }
+                  
+                  // Convert the chunk to text
+                  const chunk = new TextDecoder().decode(value);
+                  
+                  try {
+                    // Process each line in the chunk
+                    const lines = chunk.split('\n');
+                    for (const line of lines) {
+                      if (line.trim() === '') continue;
+                      
+                      const data = JSON.parse(line);
+                      if (data.response) {
+                        accumulatedResponse += data.response;
+                        
+                        // Update the streaming text display
+                        if (streamingText) {
+                          streamingText.textContent = accumulatedResponse;
+                          streamingText.scrollTop = streamingText.scrollHeight;
+                        }
+                      }
+                    }
+                  } catch (e) {
+                    console.error('Error processing chunk:', e);
+                  }
+                  
+                  // Continue processing the stream
+                  return processStream();
+                });
+              }
+              
+              // Start processing the stream
+              return processStream();
+            })
+            .catch(error => {
+              clearTimeout(timeoutId);
+              
+              // Check if this was an abort error
+              if (error.name === 'AbortError') {
+                console.log('Fetch aborted due to timeout');
+                return; // Already handled in the timeout callback
+              }
+              
+              console.error('API call failed:', error);
+              unifiedLogger.appendLog({
+                message: 'API call failed',
+                category: 'ERROR',
+                timestamp: new Date().toISOString(),
+                data: {
+                  commentId: currentComment.id,
+                  error: error.toString()
+                }
+              });
+              
+              // Update UI to show error
+              if (streamingText) {
+                streamingText.textContent = `Error: ${escapeHtml(error.toString())}`;
+              }
+              
+              isApiCallInProgress = false;
+              processNextComment(commentsList.indexOf(currentComment) + 1);
+            });
+          })
+          .withFailureHandler(function(error) {
+            hideProcessingOverlay();
+            isProcessing = false;
+            updateProcessButtonState();
+            alert('Failed to retrieve document text: ' + error);
+          })
+          .getDocumentAsMarkdown();
+      }
+      
+      // Append the AI response to the document
+      function appendResponseToDocument(response) {
+        const progressElement = document.getElementById('progress');
+        
+        // Show processing overlay
+        showProcessingOverlay('Appending response to document...');
+        
+        // Ensure the response is properly formatted as markdown
+        // If the response doesn't start with markdown formatting, add it
+        let formattedResponse = response.trim();
+        
+        // Check if the response contains proper markdown headings
+        const hasMarkdownHeadings = /^#+\s+.+$/m.test(formattedResponse);
+        if (!hasMarkdownHeadings) {
+          // Add basic markdown formatting if it's missing
+          console.log('Adding markdown formatting to response');
+          
+          // Split into paragraphs
+          const paragraphs = formattedResponse.split(/\n{2,}/);
+          formattedResponse = '';
+          
+          // Process each paragraph
+          for (let i = 0; i < paragraphs.length; i++) {
+            const para = paragraphs[i].trim();
+            if (!para) continue;
+            
+            // Check if it looks like a heading (all caps, short line, ends with colon)
+            if (para.toUpperCase() === para && para.length < 50 && para.endsWith(':')) {
+              formattedResponse += '## ' + para + '\n\n';
+            } 
+            // Check if it looks like a subheading (ends with colon)
+            else if (para.endsWith(':') && para.length < 100) {
+              formattedResponse += '### ' + para + '\n\n';
+            }
+            // Check for bullet points
+            else if (para.startsWith('•') || para.startsWith('*') || para.startsWith('-')) {
+              formattedResponse += para + '\n\n';
+            }
+            // Regular paragraph
+            else {
+              formattedResponse += para + '\n\n';
+            }
+          }
+        }
+        
+        google.script.run
+          .withSuccessHandler(function() {
+            hideProcessingOverlay();
+            isProcessing = false;
+            updateProcessButtonState();
+            
+            // Add success message
+            const successMessage = document.createElement('div');
+            successMessage.className = 'progress-item status-completed';
+            successMessage.innerHTML = '<strong>Success:</strong> AI response added to the end of the document';
+            progressElement.insertBefore(successMessage, progressElement.firstChild);
+          })
+          .withFailureHandler(function(error) {
+            hideProcessingOverlay();
+            isProcessing = false;
+            updateProcessButtonState();
+            
+            // Add error message
+            const errorMessage = document.createElement('div');
+            errorMessage.className = 'progress-item status-error';
+            errorMessage.innerHTML = `<strong>Error:</strong> ${escapeHtml(error.toString())}`;
+            progressElement.insertBefore(errorMessage, progressElement.firstChild);
+          })
+          .appendToDocument(formattedResponse);
+      }
+      
+      // Clear the document prompt input
+      function clearDocumentPrompt() {
+        document.getElementById('docPromptInput').value = '';
+        document.getElementById('promptLibrarySelect').selectedIndex = 0;
+      }
+      
+      // Load settings on startup
+      function loadUserSettings() {
+        google.script.run
+          .withSuccessHandler(function(settings) {
+            if (settings) {
+              try {
+                // Server returns already parsed JSON object
+                userSettings = { ...userSettings, ...settings };
+                
+                // Apply settings
+                if (userSettings.showDebugTools) {
+                  document.getElementById('debug-toggle').checked = true;
+                  document.getElementById('debugSection').classList.add('visible');
+                } else {
+                  document.getElementById('debug-toggle').checked = false;
+                  document.getElementById('debugSection').classList.remove('visible');
+                }
+                
+                // Update timeout if it was changed
+                if (userSettings.timeout && userSettings.timeout !== TIMEOUT_MS) {
+                  console.log(`Loaded custom timeout: ${userSettings.timeout}ms`);
+                }
+              } catch (e) {
+                console.error("Error applying settings:", e);
+              }
+            }
+          })
+          .withFailureHandler(function(error) {
+            console.error("Failed to load settings:", error);
+          })
+          .getSettings();
+      }
+
+      // Save settings when changed
+      function saveUserSettings() {
+        try {
+          const settingsJson = JSON.stringify(userSettings);
+        google.script.run
+          .withSuccessHandler(function() {
+              console.log("Settings saved successfully");
+          })
+          .withFailureHandler(function(error) {
+              console.error("Failed to save settings:", error);
+            })
+            .saveSettings(settingsJson);
+        } catch (e) {
+          console.error("Error saving settings:", e);
+        }
+      }
+
+      // Toggle debug tools visibility
+      document.getElementById('debug-toggle').addEventListener('change', function(e) {
+        const debugSection = document.getElementById('debugSection');
+        userSettings.showDebugTools = e.target.checked;
+        
+        if (e.target.checked) {
+          debugSection.classList.add('visible');
+        } else {
+          debugSection.classList.remove('visible');
+        }
+        
+        saveUserSettings();
+      });
+
+      // Call loadSettings on startup
+      document.addEventListener('DOMContentLoaded', function() {
+        // Ensure debug section is hidden by default
+        document.getElementById('debugSection').classList.remove('visible');
+        document.getElementById('debug-toggle').checked = false;
+        
+        // Then load user settings which may override this
+        loadUserSettings();
+        initPromptLibrary();
+        
+        // Initialize settings button
+        document.getElementById('settingsButton').addEventListener('click', toggleSettingsPanel);
+      });
+      
+      // Toggle settings panel visibility
+      function toggleSettingsPanel() {
+        const settingsPanel = document.getElementById('settingsPanel');
+        settingsPanel.classList.toggle('visible');
+        
+        // Update button icon
+        const settingsIcon = document.getElementById('settingsIcon');
+        if (settingsPanel.classList.contains('visible')) {
+          settingsIcon.textContent = '✖️';
+        } else {
+          settingsIcon.textContent = '⚙️';
+        }
+      }
       
       /**
        * Handle errors in a user-friendly way
@@ -474,8 +1293,8 @@
         
         // Reset UI
         displayCurrentProcessing(null);
-        hideProcessingOverlay();
-        updateProcessButtonState();
+          hideProcessingOverlay();
+          updateProcessButtonState();
       }
 
       /**
@@ -517,6 +1336,26 @@
         
         // Add cleanup handlers
         window.addEventListener('unload', cleanup);
+        
+        // Add event delegation for retry buttons
+        document.addEventListener('click', function(e) {
+          if (e.target && e.target.classList.contains('retry-button')) {
+            const index = parseInt(e.target.dataset.index, 10);
+            if (!isNaN(index) && index >= 0 && index < commentsList.length) {
+              // Clear the current processing element
+              const currentProcessing = document.getElementById(`processing-${index}`);
+              if (currentProcessing) {
+                currentProcessing.innerHTML = '<div>Retrying...</div>';
+              }
+              
+              // Reset API call lock
+              isApiCallInProgress = false;
+              
+              // Process the comment again
+              processNextComment(index);
+            }
+          }
+        });
       };
       
       // Debounce function
@@ -542,6 +1381,22 @@
         document.getElementById('refreshModels').addEventListener('click', debouncedFetchModels);
         document.getElementById('processButton').addEventListener('click', processAIComments);
         document.getElementById('modelSelect').addEventListener('change', handleModelChange);
+        
+        // Load user settings
+        loadUserSettings();
+        
+        // Load saved model from server
+                    google.script.run
+          .withSuccessHandler(function(savedModel) {
+            if (savedModel) {
+              selectedModel = savedModel;
+              console.log('Loaded saved model from server:', savedModel);
+            }
+                      })
+                      .withFailureHandler(function(error) {
+            console.error('Failed to load saved model:', error);
+          })
+          .getSelectedModel();
         
         // Get fileId first
         google.script.run
@@ -656,16 +1511,16 @@
        * Cancel ongoing processing
        */
       function cancelProcessing() {
-        isCancelled = true;
+          isCancelled = true;
         if (processingTimeout) {
           clearTimeout(processingTimeout);
           processingTimeout = null;
         }
-        isProcessing = false;
+          isProcessing = false;
         currentComment = null;
         displayCurrentProcessing(null);
-        updateProcessButtonState();
-        hideProcessingOverlay();
+          updateProcessButtonState();
+          hideProcessingOverlay();
         document.getElementById('progress').innerHTML = 
           '<div class="progress-item">Processing cancelled by user.</div>';
       }
@@ -879,8 +1734,8 @@
             modelSelect.innerHTML = '';
             if (!data.models || data.models.length === 0) {
               modelSelect.innerHTML = '<option value="">No models available</option>';
-              return;
-            }
+          return;
+        }
             modelSelect.appendChild(new Option('Select a model...', ''));
 
             data.models.forEach(function(model) {
@@ -1114,7 +1969,10 @@
                   message: 'Text location verified successfully',
                   category: 'DEBUG',
                   timestamp: new Date().toISOString(),
-                  data: result
+                  data: {
+                    commentId: comment.id,
+                    suggestedTextLength: simulatedResponse.length
+                  }
                 });
 
                 // Add the suggestion to the UI for user review
@@ -1168,6 +2026,48 @@
        * Call Ollama API to process a comment
        */
       function callOllamaAPI(comment, prompt, currentIndex) {
+        // Create an AbortController for timeout
+        const controller = new AbortController();
+        const signal = controller.signal;
+        
+        // Use user's timeout setting if available, otherwise use default
+        const timeoutToUse = userSettings.timeout || TIMEOUT_MS;
+        
+        // Set a timeout to abort the fetch after the specified time
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+          console.error(`API call timed out after ${timeoutToUse}ms`);
+          unifiedLogger.appendLog({
+            message: `API call timed out after ${timeoutToUse}ms`,
+            category: 'ERROR',
+            timestamp: new Date().toISOString(),
+            data: { commentId: comment.id }
+          });
+          
+          // Update UI to show timeout error
+          const currentProcessing = document.getElementById(`processing-${currentIndex}`);
+          if (currentProcessing) {
+            currentProcessing.innerHTML = `
+            <div class="progress-item status-error">
+              <strong>Error:</strong> Request timed out after ${timeoutToUse/1000} seconds.
+                <button class="retry-button" data-index="${currentIndex}">Retry</button>
+            </div>
+          `;
+          }
+          
+          isApiCallInProgress = false;
+          processNextComment(currentIndex + 1);
+        }, timeoutToUse);
+        
+        // Log the start of the API request
+        console.log(`Starting API request for comment ${comment.id}`);
+        unifiedLogger.appendLog({
+          message: `Starting API request for comment ${comment.id}`,
+          category: 'DEBUG',
+          timestamp: new Date().toISOString(),
+          data: { commentId: comment.id, prompt }
+        });
+        
         if (isCancelled) {
           processNextComment(currentIndex + 1);
           return;
@@ -1186,388 +2086,260 @@
           }
         });
 
-        // Create AbortController for timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        // Create a streaming response container
+        const currentProcessing = document.getElementById(`processing-${currentIndex}`);
+        if (currentProcessing) {
+          const streamingContainer = document.createElement('div');
+          streamingContainer.className = 'streaming-response';
+          streamingContainer.innerHTML = `
+            <div>Generating response...</div>
+            <div class="streaming-text"></div>
+          `;
+          currentProcessing.appendChild(streamingContainer);
+        }
 
-        fetch('http://localhost:11434/api/generate', {
+        // Prepare the API request
+        const apiUrl = 'http://localhost:11434/api/generate';
+        const requestBody = {
+          model: selectedModel,
+          prompt: prompt,
+          stream: true
+        };
+
+        // Make the API request
+        fetch(apiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            model: selectedModel,
-            prompt: prompt,
-            stream: false
-          }),
-          signal: controller.signal
+          body: JSON.stringify(requestBody),
+          signal: signal // Use the AbortController signal
         })
-        .then(function(response) {
-          clearTimeout(timeoutId);
-          isApiCallInProgress = false;
+        .then(response => {
           if (!response.ok) {
-            throw new Error('Network error: ' + response.statusText);
-          }
-          return response.json();
-        })
-        .then(function(data) {
-          unifiedLogger.appendLog({
-            message: 'Received API response',
-            category: 'DEBUG',
-            timestamp: new Date().toISOString(),
-            data: {
-              response: data.response,
-              commentId: comment.id
-            }
-          });
-
-          if (isCancelled) {
-            processNextComment(currentIndex + 1);
-            return;
+            throw new Error(`HTTP error! Status: ${response.status}`);
           }
           
-          if (!data.response) {
-            throw new Error('Invalid response from Ollama API');
-          }
+          // Get a reader from the response body stream
+          const reader = response.body.getReader();
+          let accumulatedResponse = '';
+          const streamingText = currentProcessing ? currentProcessing.querySelector('.streaming-text') : null;
           
-          // Sanitize the response text
-          const sanitizedResponse = data.response.replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
-            .replace(/\u2028|\u2029/g, '\n')
-            .trim();
-
-          unifiedLogger.appendLog({
-            message: 'Verifying text location',
-            category: 'DEBUG',
-            timestamp: new Date().toISOString(),
-            data: {
-              commentId: comment.id,
-              textLength: comment.text.length
-            }
-          });
-
-          // First verify we can find the text location
-          google.script.run
-            .withSuccessHandler(function(result) {
-              if (!result || !result.success) {
-                unifiedLogger.appendLog({
-                  message: 'Text location verification failed',
-                  category: 'ERROR',
-                  timestamp: new Date().toISOString(),
-                  data: result
-                });
-                throw new Error(result.error || 'Could not verify text location before replacement');
-              }
-
-              unifiedLogger.appendLog({
-                message: 'Text location verified successfully',
-                category: 'DEBUG',
-                timestamp: new Date().toISOString(),
-                data: result
-              });
-
-              // Add the suggestion to the UI for user review
-              addRevision(comment, sanitizedResponse);
-              
-              // Process next comment after a delay
-              processingTimeout = setTimeout(() => processNextComment(currentIndex + 1), 1000);
-            })
-            .withFailureHandler(function(error) {
-              console.error("aiedit: Error verifying text location:", error);
-              const errorMessage = escapeHtml(error.toString());
-              unifiedLogger.appendLog({
-                message: 'Text location verification failed',
-                category: 'ERROR',
-                timestamp: new Date().toISOString(),
-                data: { error: error.toString() }
-              });
-              
-              if (!isCancelled) {
-                unifiedLogger.appendLog({
-                  message: `Error processing comment ${currentIndex + 1}`,
-                  category: 'ERROR',
-                  timestamp: new Date().toISOString(),
-                  data: { error: errorMessage }
-                });
+          // Function to process the stream
+          function processStream() {
+            return reader.read().then(({ done, value }) => {
+              // If the stream is done, process the final response
+            if (done) {
+              console.log('Stream complete');
+                clearTimeout(timeoutId); // Clear the timeout
                 
-                processingTimeout = setTimeout(() => processNextComment(currentIndex + 1), 2000);
+                // Process the accumulated response
+                const sanitizedResponse = sanitizeResponse(accumulatedResponse);
+                
+                // Verify the text location
+                verifyTextLocation(comment, sanitizedResponse, currentIndex);
+                return;
               }
-            })
-            .verifyTextLocation(fileId, comment.id, comment.text);
-        })
-        .catch(function(error) {
-          clearTimeout(timeoutId);
-          isApiCallInProgress = false;
-          
-          // Handle abort error specifically
-          if (error.name === 'AbortError') {
-            error = new Error('Request timed out after 30 seconds');
+              
+              // Convert the chunk to text
+              const chunk = new TextDecoder().decode(value);
+              
+              try {
+                // Process each line in the chunk
+                const lines = chunk.split('\n');
+            for (const line of lines) {
+                  if (line.trim() === '') continue;
+                  
+                  const data = JSON.parse(line);
+                  if (data.response) {
+                    accumulatedResponse += data.response;
+                    
+                    // Update the streaming text display
+                    if (streamingText) {
+                      streamingText.textContent = accumulatedResponse;
+                      streamingText.scrollTop = streamingText.scrollHeight;
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error('Error processing chunk:', e);
+              }
+              
+              // Continue processing the stream
+              return processStream();
+            });
           }
           
-          console.error("aiedit: Error in Ollama API call:", error);
-          const errorMessage = escapeHtml(error.toString());
+          // Start processing the stream
+          return processStream();
+        })
+        .catch(error => {
+          clearTimeout(timeoutId); // Clear the timeout
+          
+          // Check if this was an abort error
+          if (error.name === 'AbortError') {
+            console.log('Fetch aborted due to timeout');
+            return; // Already handled in the timeout callback
+          }
+          
+          console.error('API call failed:', error);
           unifiedLogger.appendLog({
             message: 'API call failed',
             category: 'ERROR',
             timestamp: new Date().toISOString(),
-            data: { error: error.toString() }
+            data: {
+              commentId: comment.id,
+              error: error.toString()
+            }
           });
           
-          if (!isCancelled) {
-            unifiedLogger.appendLog({
-              message: `Error processing comment ${currentIndex + 1}`,
-              category: 'ERROR',
-              timestamp: new Date().toISOString(),
-              data: { error: errorMessage }
-            });
-            
-            processingTimeout = setTimeout(() => processNextComment(currentIndex + 1), 2000);
+          // Update UI to show error
+          if (currentProcessing) {
+            currentProcessing.innerHTML = `
+                          <div class="progress-item status-error">
+                <strong>Error:</strong> ${escapeHtml(error.toString())}
+                <button class="retry-button" data-index="${currentIndex}">Retry</button>
+                          </div>
+                        `;
           }
+          
+          isApiCallInProgress = false;
+          processNextComment(currentIndex + 1);
         });
       }
-
+      
       /**
-       * Copy server logs to clipboard
+       * Sanitize API response text
        */
-      function copyServerLogs() {
-        const button = document.getElementById('copyServerLogsButton');
-        const originalText = button.textContent;
-        button.disabled = true;
-        button.textContent = 'Fetching logs...';
+      function sanitizeResponse(text) {
+        if (!text) return '';
         
+        // Remove any markdown code blocks
+        text = text.replace(/```[\s\S]*?```/g, '');
+        
+        // Remove any explanations before or after the edited text
+        const lines = text.split('\n');
+        let startLine = 0;
+        let endLine = lines.length - 1;
+        
+        // Find the first non-empty line
+        while (startLine <= endLine && lines[startLine].trim() === '') {
+          startLine++;
+        }
+        
+        // Find the last non-empty line
+        while (endLine >= startLine && lines[endLine].trim() === '') {
+          endLine--;
+        }
+        
+        // Extract the core content
+        const coreContent = lines.slice(startLine, endLine + 1).join('\n');
+        
+        // Trim leading and trailing quotation marks
+        let trimmedContent = coreContent.trim();
+        if (trimmedContent.startsWith('"') && trimmedContent.endsWith('"')) {
+          trimmedContent = trimmedContent.substring(1, trimmedContent.length - 1);
+        }
+        
+        return trimmedContent.trim();
+      }
+      
+      /**
+       * Verify text location and add suggestion
+       */
+      function verifyTextLocation(comment, suggestedText, currentIndex) {
+        const currentProcessing = document.getElementById(`processing-${currentIndex}`);
+        
+        unifiedLogger.appendLog({
+          message: 'Verifying text location',
+          category: 'DEBUG',
+          timestamp: new Date().toISOString(),
+          data: {
+            commentId: comment.id,
+            suggestedTextLength: suggestedText.length
+          }
+        });
+        
+        if (currentProcessing) {
+          currentProcessing.innerHTML = `
+            <div class="progress-item">
+              <div>Verifying text location...</div>
+                  </div>
+                `;
+        }
+        
+        // Call the server to verify text location
         google.script.run
-          .withSuccessHandler(function(logs) {
-            if (!logs) {
-              button.textContent = 'No logs found';
-              setTimeout(() => {
-                button.disabled = false;
-                button.textContent = originalText;
-              }, 2000);
+          .withSuccessHandler(function(result) {
+            if (!result || !result.success) {
+              unifiedLogger.appendLog({
+                message: 'Text location verification failed',
+                category: 'ERROR',
+                timestamp: new Date().toISOString(),
+                data: result
+              });
+              
+              if (currentProcessing) {
+                currentProcessing.innerHTML = `
+            <div class="progress-item status-error">
+                    <strong>Error:</strong> ${escapeHtml(result ? result.error : 'Unknown error')}
+                    <button class="retry-button" data-index="${currentIndex}">Retry</button>
+            </div>
+          `;
+              }
+              
+              isApiCallInProgress = false;
+              processNextComment(currentIndex + 1);
               return;
             }
             
-            // Parse logs if they're in JSON format
-            let formattedLogs;
-            try {
-              const parsedLogs = JSON.parse(logs);
-              formattedLogs = JSON.stringify(parsedLogs, null, 2);
-            } catch (e) {
-              formattedLogs = logs; // Use as-is if not JSON
+            unifiedLogger.appendLog({
+              message: 'Text location verified successfully',
+              category: 'DEBUG',
+              timestamp: new Date().toISOString(),
+              data: {
+                commentId: comment.id,
+                suggestedTextLength: suggestedText.length
+              }
+            });
+            
+            // Add the suggestion to the UI for user review
+            addRevision(comment, suggestedText);
+            
+            // Update the processing item to show success
+            if (currentProcessing) {
+              currentProcessing.innerHTML = `
+                <div class="progress-item status-completed">
+                  <strong>Completed:</strong> Suggestion ready for review
+                </div>
+              `;
             }
             
-            navigator.clipboard.writeText(formattedLogs).then(
-              function() {
-                button.textContent = 'Copied! ✓';
-                setTimeout(() => {
-                  button.disabled = false;
-                  button.textContent = originalText;
-                }, 2000);
-              },
-              function(err) {
-                console.error('Failed to copy logs:', err);
-                button.textContent = 'Failed to copy ✗';
-                setTimeout(() => {
-                  button.disabled = false;
-                  button.textContent = originalText;
-                }, 2000);
-              }
-            );
+            isApiCallInProgress = false;
+            processNextComment(currentIndex + 1);
           })
           .withFailureHandler(function(error) {
-            console.error('Failed to fetch logs:', error);
-            button.textContent = 'Error fetching logs ✗';
-            setTimeout(() => {
-              button.disabled = false;
-              button.textContent = originalText;
-            }, 2000);
-          })
-          .getServerLogs();
-      }
-
-      // Unified logging system
-      const unifiedLogger = {
-        get logElement() {
-          const element = document.getElementById('unifiedLogs');
-          if (!element) {
-            console.error('Unified logs element not found');
-            return null;
-          }
-          return element;
-        },
-        maxLogSize: 50000,
-        
-        formatTimestamp: function(isoString) {
-          const date = new Date(isoString);
-          return date.toLocaleTimeString();
-        },
-        
-        appendLog: function(entry) {
-          if (!this.logElement) {
-            console.error('Cannot append log: element not found');
-            return;
-          }
-
-          const timestamp = entry.timestamp ? this.formatTimestamp(entry.timestamp) : new Date().toLocaleTimeString();
-          let logText = `[${timestamp}] `;
-          
-          if (entry.category) {
-            logText += `[${entry.category.toUpperCase()}] `;
-          }
-          
-          logText += entry.message;
-          
-          if (entry.data) {
-            try {
-              const formattedData = typeof entry.data === 'string' ? 
-                entry.data : 
-                JSON.stringify(entry.data, null, 2);
-              logText += '\n' + formattedData;
-            } catch (e) {
-              logText += '\nError formatting data: ' + e.message;
-            }
-          }
-          
-          const currentValue = this.logElement.value;
-          this.logElement.value += (currentValue ? '\n' : '') + logText;
-          
-          if (this.logElement.value.length > this.maxLogSize) {
-            const excess = this.logElement.value.length - this.maxLogSize;
-            this.logElement.value = '...\n[Truncated]\n' + 
-              this.logElement.value.substring(excess + 100);
-          }
-          
-          this.logElement.scrollTop = this.logElement.scrollHeight;
-        },
-        
-        clear: function() {
-          if (!this.logElement) {
-            console.error('Cannot clear logs: element not found');
-            return;
-          }
-          this.logElement.value = '';
-          this.appendLog({ 
-            message: 'Logs cleared',
-            category: 'DEBUG',
-            timestamp: new Date().toISOString()
-          });
-        },
-        
-        copy: async function() {
-          try {
-            if (!this.logElement) throw new Error('Logs element not found');
-            await navigator.clipboard.writeText(this.logElement.value);
-            this.appendLog({ 
-              message: 'Logs copied to clipboard',
-              category: 'DEBUG',
-              timestamp: new Date().toISOString()
+            unifiedLogger.appendLog({
+              message: 'Text location verification failed',
+              category: 'ERROR',
+              timestamp: new Date().toISOString(),
+              data: { error: error.toString() }
             });
-          } catch (e) {
-            // Fallback method
-            if (!this.logElement) throw new Error('Logs element not found');
-            this.logElement.select();
-            try {
-              document.execCommand('copy');
-              this.appendLog({ 
-                message: 'Logs copied using fallback method',
-                category: 'DEBUG',
-                timestamp: new Date().toISOString()
-              });
-            } catch (fallbackError) {
-              this.appendLog({ 
-                message: 'Please manually copy the logs',
-                category: 'ERROR',
-                timestamp: new Date().toISOString(),
-                data: { error: fallbackError.message }
-              });
+            
+            if (currentProcessing) {
+              currentProcessing.innerHTML = `
+                <div class="progress-item status-error">
+                  <strong>Error:</strong> ${escapeHtml(error.toString())}
+                  <button class="retry-button" data-index="${currentIndex}">Retry</button>
+                </div>
+              `;
             }
-          }
-        },
-        
-        refresh: function() {
-          google.script.run
-            .withSuccessHandler((response) => {
-              if (response.success) {
-                this.appendLog({
-                  message: 'Server logs retrieved',
-                  category: 'DEBUG',
-                  timestamp: new Date().toISOString(),
-                  data: response.metadata
-                });
-                
-                const logs = response.logs.split('\n');
-                logs.forEach(log => {
-                  try {
-                    const parsed = JSON.parse(log);
-                    this.appendLog(parsed);
-                  } catch (e) {
-                    this.appendLog({
-                      message: log,
-                      category: 'DEBUG',
-                      timestamp: new Date().toISOString()
-                    });
-                  }
-                });
-              } else {
-                this.appendLog({
-                  message: 'Failed to retrieve server logs',
-                  category: 'ERROR',
-                  timestamp: new Date().toISOString(),
-                  data: response.error
-                });
-              }
-            })
-            .withFailureHandler((error) => {
-              this.appendLog({
-                message: 'Error refreshing logs',
-                category: 'ERROR',
-                timestamp: new Date().toISOString(),
-                data: error.toString()
-              });
-            })
-            .getServerLogs();
-        }
-      };
-      
-      // Initialize logging controls
-      document.getElementById('copyLogsButton').addEventListener('click', () => unifiedLogger.copy());
-      document.getElementById('clearLogsButton').addEventListener('click', () => unifiedLogger.clear());
-      document.getElementById('refreshLogsButton').addEventListener('click', () => unifiedLogger.refresh());
-      
-      // Override console.log and console.error
-      const originalConsoleLog = console.log;
-      const originalConsoleError = console.error;
-      
-      console.log = function() {
-        const args = Array.from(arguments);
-        if (typeof unifiedLogger !== 'undefined' && unifiedLogger.appendLog) {
-          unifiedLogger.appendLog({
-            message: args.join(' '),
-            category: 'DEBUG',
-            timestamp: new Date().toISOString()
-          });
-        }
-        originalConsoleLog.apply(console, args);
-      };
-      
-      console.error = function() {
-        const args = Array.from(arguments);
-        if (typeof unifiedLogger !== 'undefined' && unifiedLogger.appendLog) {
-          unifiedLogger.appendLog({
-            message: args.join(' '),
-            category: 'ERROR',
-            timestamp: new Date().toISOString()
-          });
-        }
-        originalConsoleError.apply(console, args);
-      };
-      
-
-      
-      // Initialize logger
-      unifiedLogger.appendLog({
-        message: 'Debug logging system initialized',
-        category: 'debug',
-        timestamp: new Date().toISOString()
-      });
+            
+            isApiCallInProgress = false;
+            processNextComment(currentIndex + 1);
+          })
+          .verifyTextLocation(fileId, comment.id, comment.text);
+      }
     </script>
   </body>
 </html>

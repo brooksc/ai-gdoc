@@ -1,5 +1,5 @@
 /**
- * Wed Feb 19 20:55:39 PST 2025
+ * Mon Feb 24 14:36:52 PST 2025
  */
 /**
  * AI Editor for Google Docs
@@ -998,6 +998,18 @@ function applyAIEdit(fileId, commentId, suggestedText, accepted) {
         if (acceptUpdate.success) {
           try {
             Logger.log("aiedit-debug: Creating resolving reply");
+            // First check if comment is already resolved
+            const currentComment = Drive.Comments.get(fileId, commentId, {
+              fields: 'id,resolved'
+            });
+            
+            if (currentComment.resolved) {
+              Logger.log("aiedit-debug: Comment already resolved", {
+                commentId: commentId
+              });
+              return; // Already resolved, no need to do it again
+            }
+            
             const reply = Drive.Replies.create(
               {
                 action: 'resolve',
@@ -1005,12 +1017,23 @@ function applyAIEdit(fileId, commentId, suggestedText, accepted) {
               },
               fileId,
               commentId,
-              { fields: 'id,action' }
+              { fields: 'id,action,resolved' }
             );
+            
+            // Verify the comment was actually resolved
+            const verifyComment = Drive.Comments.get(fileId, commentId, {
+              fields: 'id,resolved'
+            });
+            
             Logger.log("aiedit-debug: Created resolving reply", {
               replyId: reply.id,
-              action: reply.action
+              action: reply.action,
+              commentResolved: verifyComment.resolved
             });
+            
+            if (!verifyComment.resolved) {
+              throw new Error('Failed to resolve comment despite successful reply creation');
+            }
           } catch (error) {
             Logger.log("aiedit-debug: Failed to create resolving reply", {
               error: error.toString()
@@ -1361,6 +1384,532 @@ function saveSelectedModel(modelName) {
 function getSelectedModel() {
   const userProperties = PropertiesService.getUserProperties();
   return userProperties.getProperty('selectedModel') || '';
+}
+
+/**
+ * Get the full text of the document
+ * 
+ * @return {String} The document text
+ */
+function getDocumentText() {
+  try {
+    const doc = DocumentApp.getActiveDocument();
+    const body = doc.getBody();
+    return body.getText();
+  } catch (e) {
+    Logger.log("aiedit-debug: Error getting document text", {
+      error: e.toString(),
+      stack: e.stack
+    });
+    throw new Error("Failed to get document text: " + e.message);
+  }
+}
+
+/**
+ * Get the document content as markdown
+ * 
+ * @return {String} The document content in markdown format
+ */
+function getDocumentAsMarkdown() {
+  try {
+    const doc = DocumentApp.getActiveDocument();
+    const body = doc.getBody();
+    let markdown = '';
+    
+    // Process each child element
+    const numChildren = body.getNumChildren();
+    
+    for (let i = 0; i < numChildren; i++) {
+      const child = body.getChild(i);
+      const elementType = child.getType();
+      
+      if (elementType === DocumentApp.ElementType.PARAGRAPH) {
+        const paragraph = child.asParagraph();
+        const text = paragraph.getText();
+        if (!text.trim()) {
+          markdown += '\n\n';
+          continue;
+        }
+        
+        // Handle headings
+        const heading = paragraph.getHeading();
+        if (heading === DocumentApp.ParagraphHeading.HEADING1) {
+          markdown += '# ' + text + '\n\n';
+        } else if (heading === DocumentApp.ParagraphHeading.HEADING2) {
+          markdown += '## ' + text + '\n\n';
+        } else if (heading === DocumentApp.ParagraphHeading.HEADING3) {
+          markdown += '### ' + text + '\n\n';
+        } else if (heading === DocumentApp.ParagraphHeading.HEADING4) {
+          markdown += '#### ' + text + '\n\n';
+        } else if (heading === DocumentApp.ParagraphHeading.HEADING5) {
+          markdown += '##### ' + text + '\n\n';
+        } else if (heading === DocumentApp.ParagraphHeading.HEADING6) {
+          markdown += '###### ' + text + '\n\n';
+        } else {
+          // Regular paragraph
+          markdown += text + '\n\n';
+        }
+      } else if (elementType === DocumentApp.ElementType.LIST_ITEM) {
+        const listItem = child.asListItem();
+        const text = listItem.getText();
+        const glyphType = listItem.getGlyphType();
+        
+        if (glyphType === DocumentApp.GlyphType.BULLET || 
+            glyphType === DocumentApp.GlyphType.HOLLOW_BULLET || 
+            glyphType === DocumentApp.GlyphType.SQUARE_BULLET) {
+          markdown += '* ' + text + '\n';
+        } else {
+          // Numbered list
+          markdown += '1. ' + text + '\n';
+        }
+      } else if (elementType === DocumentApp.ElementType.HORIZONTAL_RULE) {
+        markdown += '---\n\n';
+      }
+    }
+    
+    Logger.log("aiedit-debug: Converted document to markdown", {
+      markdownLength: markdown.length
+    });
+    
+    return markdown;
+  } catch (e) {
+    Logger.log("aiedit-debug: Error converting document to markdown", {
+      error: e.toString(),
+      stack: e.stack
+    });
+    throw new Error("Failed to convert document to markdown: " + e.message);
+  }
+}
+
+/**
+ * Convert markdown to Google Docs formatting
+ * 
+ * @param {String} markdown - Markdown text to convert
+ * @param {DocumentApp.Body} body - Document body to append to
+ * @return {Array} Array of paragraph elements created
+ */
+function convertMarkdownToDoc(markdown, body) {
+  if (!markdown || !body) {
+    return [];
+  }
+  
+  Logger.log("aiedit-debug: Converting markdown to Google Docs format", {
+    markdownLength: markdown.length
+  });
+  
+  const paragraphs = [];
+  
+  // Split the markdown into blocks (paragraphs, lists, etc.)
+  const blocks = markdown.split(/\n{2,}/);
+  
+  for (let block of blocks) {
+    block = block.trim();
+    if (!block) continue;
+    
+    // Check for horizontal rule (---, ***, ___)
+    if (block.match(/^(\*{3,}|-{3,}|_{3,})$/)) {
+      body.appendHorizontalRule();
+      continue;
+    }
+    
+    // Check for headings (# Heading)
+    const headingMatch = block.match(/^(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const text = headingMatch[2].trim();
+      
+      const para = body.appendParagraph(text);
+      
+      // Map markdown heading levels to Google Docs heading levels
+      switch (level) {
+        case 1:
+          para.setHeading(DocumentApp.ParagraphHeading.HEADING1);
+          break;
+        case 2:
+          para.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+          break;
+        case 3:
+          para.setHeading(DocumentApp.ParagraphHeading.HEADING3);
+          break;
+        case 4:
+          para.setHeading(DocumentApp.ParagraphHeading.HEADING4);
+          break;
+        case 5:
+        case 6:
+          para.setHeading(DocumentApp.ParagraphHeading.HEADING5);
+          break;
+      }
+      
+      paragraphs.push(para);
+      continue;
+    }
+    
+    // Check for blockquotes
+    if (block.split('\n').every(line => line.trim().match(/^>\s+.+/) || line.trim() === '>')) {
+      const quoteLines = block.split('\n')
+        .map(line => line.replace(/^>\s?/, '').trim())
+        .filter(line => line);
+      
+      const quoteText = quoteLines.join('\n');
+      const para = body.appendParagraph(quoteText);
+      para.setIndentStart(36); // Indent by 0.5 inches (36 points)
+      para.setIndentFirstLine(36);
+      para.setBackgroundColor('#f0f0f0');
+      para.setBorderLeft(true);
+      para.setLeftBorder('#cccccc', 3);
+      
+      paragraphs.push(para);
+      continue;
+    }
+    
+    // Check for unordered lists
+    if (block.split('\n').every(line => line.trim().match(/^[\*\-\+]\s+.+/) || line.trim() === '')) {
+      const listItems = block.split('\n').filter(line => line.trim());
+      
+      for (const item of listItems) {
+        const text = item.replace(/^[\*\-\+]\s+/, '').trim();
+        if (!text) continue;
+        
+        const para = body.appendListItem(text);
+        para.setGlyphType(DocumentApp.GlyphType.BULLET);
+        paragraphs.push(para);
+      }
+      continue;
+    }
+    
+    // Check for ordered lists
+    if (block.split('\n').every(line => line.trim().match(/^\d+\.\s+.+/) || line.trim() === '')) {
+      const listItems = block.split('\n').filter(line => line.trim());
+      
+      for (const item of listItems) {
+        const text = item.replace(/^\d+\.\s+/, '').trim();
+        if (!text) continue;
+        
+        const para = body.appendListItem(text);
+        para.setGlyphType(DocumentApp.GlyphType.NUMBER);
+        paragraphs.push(para);
+      }
+      continue;
+    }
+    
+    // Check for code blocks (```code```)
+    const codeBlockMatch = block.match(/^```(?:\w+)?\n([\s\S]+)\n```$/);
+    if (codeBlockMatch) {
+      const codeText = codeBlockMatch[1];
+      const para = body.appendParagraph(codeText);
+      const textObj = para.editAsText();
+      
+      // Apply code formatting
+      textObj.setFontFamily(0, codeText.length - 1, 'Courier New');
+      textObj.setBackgroundColor(0, codeText.length - 1, '#f0f0f0');
+      para.setIndentStart(36);
+      para.setIndentFirstLine(36);
+      
+      paragraphs.push(para);
+      continue;
+    }
+    
+    // Process inline formatting for regular paragraphs
+    const para = body.appendParagraph('');
+    paragraphs.push(para);
+    
+    // Process the paragraph text with inline formatting
+    const text = para.editAsText();
+    
+    // Handle inline formatting
+    let currentText = block;
+    let currentPosition = 0;
+    
+    // First, process links [text](url)
+    const processedText = processLinks(currentText, text);
+    
+    // Then process other inline formatting
+    processInlineFormatting(processedText.remainingText, text, processedText.currentPosition);
+  }
+  
+  Logger.log("aiedit-debug: Markdown conversion complete", {
+    paragraphsCreated: paragraphs.length
+  });
+  
+  return paragraphs;
+}
+
+/**
+ * Process markdown links in text
+ * 
+ * @param {String} currentText - Text to process
+ * @param {Text} textElement - Google Docs Text element to append to
+ * @return {Object} Object with remaining text and current position
+ */
+function processLinks(currentText, textElement) {
+  let currentPosition = 0;
+  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+  let linkMatch;
+  let lastIndex = 0;
+  
+  while ((linkMatch = linkRegex.exec(currentText)) !== null) {
+    // Add text before the link
+    const beforeText = currentText.substring(lastIndex, linkMatch.index);
+    if (beforeText) {
+      textElement.appendText(beforeText);
+      currentPosition += beforeText.length;
+    }
+    
+    // Add the link text
+    const linkText = linkMatch[1];
+    const linkUrl = linkMatch[2];
+    
+    textElement.appendText(linkText);
+    
+    // Apply link formatting
+    if (currentPosition <= textElement.getText().length - 1) {
+      textElement.setLinkUrl(currentPosition, currentPosition + linkText.length - 1, linkUrl);
+      textElement.setForegroundColor(currentPosition, currentPosition + linkText.length - 1, '#1155cc');
+      textElement.setUnderline(currentPosition, currentPosition + linkText.length - 1, true);
+    }
+    
+    currentPosition += linkText.length;
+    lastIndex = linkMatch.index + linkMatch[0].length;
+  }
+  
+  // Return remaining text and current position
+  return {
+    remainingText: currentText.substring(lastIndex),
+    currentPosition: currentPosition
+  };
+}
+
+/**
+ * Process inline markdown formatting (bold, italic, code)
+ * 
+ * @param {String} text - Text to process
+ * @param {Text} textElement - Google Docs Text element to append to
+ * @param {Number} startPosition - Starting position in the text element
+ */
+function processInlineFormatting(text, textElement, startPosition) {
+  if (!text) return;
+  
+  let currentPosition = startPosition || 0;
+  
+  // Split by formatting markers
+  const segments = text.split(/(\*\*.*?\*\*|\*.*?\*|__.*?__|_.*?_|`.*?`)/);
+  
+  for (const segment of segments) {
+    if (!segment) continue;
+    
+    // Bold: **text** or __text__
+    const boldMatch = segment.match(/^(\*\*|__)(.*?)(\*\*|__)$/);
+    if (boldMatch) {
+      textElement.appendText(boldMatch[2]);
+      
+      // Apply bold formatting if within bounds
+      if (currentPosition <= textElement.getText().length - 1) {
+        textElement.setBold(currentPosition, currentPosition + boldMatch[2].length - 1, true);
+      }
+      
+      currentPosition += boldMatch[2].length;
+      continue;
+    }
+    
+    // Italic: *text* or _text_
+    const italicMatch = segment.match(/^(\*|_)(.*?)(\*|_)$/);
+    if (italicMatch) {
+      textElement.appendText(italicMatch[2]);
+      
+      // Apply italic formatting if within bounds
+      if (currentPosition <= textElement.getText().length - 1) {
+        textElement.setItalic(currentPosition, currentPosition + italicMatch[2].length - 1, true);
+      }
+      
+      currentPosition += italicMatch[2].length;
+      continue;
+    }
+    
+    // Code: `text`
+    const codeMatch = segment.match(/^`(.*?)`$/);
+    if (codeMatch) {
+      textElement.appendText(codeMatch[1]);
+      
+      // Apply code formatting if within bounds
+      if (currentPosition <= textElement.getText().length - 1) {
+        textElement.setFontFamily(currentPosition, currentPosition + codeMatch[1].length - 1, 'Courier New');
+        textElement.setBackgroundColor(currentPosition, currentPosition + codeMatch[1].length - 1, '#f0f0f0');
+      }
+      
+      currentPosition += codeMatch[1].length;
+      continue;
+    }
+    
+    // Regular text
+    textElement.appendText(segment);
+    currentPosition += segment.length;
+  }
+}
+
+/**
+ * Append text to the end of the document with a separator
+ * 
+ * @param {String} text - Text to append
+ * @return {Boolean} Success status
+ */
+function appendToDocument(text) {
+  try {
+    if (!text) {
+      throw new Error("No text provided to append");
+    }
+    
+    Logger.log("aiedit-debug: Appending text to document", {
+      textLength: text.length
+    });
+    
+    const doc = DocumentApp.getActiveDocument();
+    const body = doc.getBody();
+    
+    // Add a horizontal separator
+    body.appendHorizontalRule();
+    
+    // Add a paragraph with the current date and time
+    const dateTime = new Date().toLocaleString();
+    const header = body.appendParagraph("AI Response (" + dateTime + ")");
+    header.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    
+    // Convert markdown to Google Docs formatting
+    convertMarkdownToDoc(text, body);
+    
+    Logger.log("aiedit-debug: Successfully appended text to document");
+    return true;
+  } catch (e) {
+    Logger.log("aiedit-debug: Error appending text to document", {
+      error: e.toString(),
+      stack: e.stack
+    });
+    throw new Error("Failed to append text to document: " + e.message);
+  }
+}
+
+/**
+ * Save the prompt library to user properties
+ * 
+ * @param {String} promptsJson - JSON string of prompts
+ */
+function savePromptLibrary(promptsJson) {
+  try {
+    if (!promptsJson) {
+      throw new Error("No prompts provided");
+    }
+    
+    // Validate JSON
+    JSON.parse(promptsJson);
+    
+    Logger.log("aiedit-debug: Saving prompt library", {
+      length: promptsJson.length
+    });
+    
+    const userProperties = PropertiesService.getUserProperties();
+    userProperties.setProperty('promptLibrary', promptsJson);
+    
+    return true;
+  } catch (e) {
+    Logger.log("aiedit-debug: Error saving prompt library", {
+      error: e.toString(),
+      stack: e.stack
+    });
+    throw new Error("Failed to save prompt library: " + e.message);
+  }
+}
+
+/**
+ * Get the prompt library from user properties
+ * 
+ * @return {String} JSON string of prompts
+ */
+function getPromptLibrary() {
+  try {
+    const userProperties = PropertiesService.getUserProperties();
+    const promptsJson = userProperties.getProperty('promptLibrary');
+    
+    Logger.log("aiedit-debug: Getting prompt library", {
+      exists: !!promptsJson,
+      length: promptsJson ? promptsJson.length : 0
+    });
+    
+    return promptsJson || '';
+  } catch (e) {
+    Logger.log("aiedit-debug: Error getting prompt library", {
+      error: e.toString(),
+      stack: e.stack
+    });
+    throw new Error("Failed to get prompt library: " + e.message);
+  }
+}
+
+/**
+ * Save user settings
+ * 
+ * @param {String} settingsJson - JSON string of settings
+ */
+function saveSettings(settingsJson) {
+  try {
+    if (!settingsJson) {
+      throw new Error("No settings provided");
+    }
+    
+    // Validate JSON
+    JSON.parse(settingsJson);
+    
+    Logger.log("aiedit-debug: Saving settings", {
+      length: settingsJson.length
+    });
+    
+    const userProperties = PropertiesService.getUserProperties();
+    userProperties.setProperty('userSettings', settingsJson);
+    
+    return true;
+  } catch (e) {
+    Logger.log("aiedit-debug: Error saving settings", {
+      error: e.toString(),
+      stack: e.stack
+    });
+    throw new Error("Failed to save settings: " + e.message);
+  }
+}
+
+/**
+ * Get user settings
+ * 
+ * @return {Object} Settings object
+ */
+function getSettings() {
+  try {
+    const userProperties = PropertiesService.getUserProperties();
+    const settingsJson = userProperties.getProperty('userSettings');
+    
+    Logger.log("aiedit-debug: Getting settings", {
+      exists: !!settingsJson,
+      length: settingsJson ? settingsJson.length : 0
+    });
+    
+    if (settingsJson) {
+      return JSON.parse(settingsJson);
+    }
+    
+    // Default settings
+    return {
+      showDebugTools: false,
+      timeout: 300000 // 5 minutes
+    };
+  } catch (e) {
+    Logger.log("aiedit-debug: Error getting settings", {
+      error: e.toString(),
+      stack: e.stack
+    });
+    
+    // Return default settings on error
+    return {
+      showDebugTools: false,
+      timeout: 300000 // 5 minutes
+    };
+  }
 }
 
 /**
