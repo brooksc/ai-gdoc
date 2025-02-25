@@ -379,9 +379,13 @@ function showSidebar() {
  * @return {String} Sanitized text
  */
 function sanitizeText(text) {
+  // Create RegExp objects instead of literal regex with control characters
+  const controlCharsRegex = new RegExp('[\\u0000-\\u001F\\u007F-\\u009F]', 'g');
+  const lineSeparatorsRegex = new RegExp('\\u2028|\\u2029', 'g');
+  
   return text
-    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // Remove control characters
-    .replace(/\u2028|\u2029/g, "\n")              // Normalize line separators
+    .replace(controlCharsRegex, "") // Remove control characters
+    .replace(lineSeparatorsRegex, "\n") // Normalize line separators
     .trim();
 }
 
@@ -537,9 +541,14 @@ function verifyTextLocation(fileId, commentId, originalText) {
     const body = doc.getBody();
     
     // Normalize the text for searching
-    const normalizedOriginal = originalText.replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
-      .replace(/\u2028|\u2029/g, "\n")
-      .replace(/\s+/g, " ")
+    const controlCharsRegex = new RegExp('[\\u0000-\\u001F\\u007F-\\u009F]', 'g');
+    const lineSeparatorsRegex = new RegExp('\\u2028|\\u2029', 'g');
+    const whitespaceRegex = new RegExp('\\s+', 'g');
+    
+    const normalizedOriginal = originalText
+      .replace(controlCharsRegex, "")
+      .replace(lineSeparatorsRegex, "\n")
+      .replace(whitespaceRegex, " ")
       .trim();
     
     // Find all occurrences of the text
@@ -740,6 +749,7 @@ function checkDocumentChanges(initialVersion, currentText, location) {
  * @return {Boolean} Success status
  */
 function applyAIEdit(fileId, commentId, suggestedText, accepted) {
+  // Get active document - needed for text operations later
   const doc = DocumentApp.getActiveDocument();
   let originalText = null;
   let location = null;
@@ -748,7 +758,8 @@ function applyAIEdit(fileId, commentId, suggestedText, accepted) {
     fileId: fileId,
     commentId: commentId,
     suggestedTextLength: suggestedText ? suggestedText.length : 0,
-    accepted: accepted
+    accepted: accepted,
+    documentId: doc.getId() // Use doc to log the document ID
   });
   
   try {
@@ -1176,14 +1187,9 @@ function getDocumentId() {
  * @return {Array} List of available model names
  */
 function getOllamaModels() {
-  try {
-    // This function will be called from the client side since
-    // Google Apps Script can't directly call external APIs
-    return [];
-  } catch (e) {
-    console.error('Error fetching Ollama models:', e);
-    return [];
-  }
+  // This function is a placeholder for client-side usage
+  // In real usage, it would make API calls from JavaScript in the HTML
+  return [];
 }
 
 /**
@@ -1197,7 +1203,14 @@ function getOllamaModels() {
  */
 function processWithOllama(text, instruction, model) {
   // This function exists as a placeholder
-  // Actual API calls will be made from the client side
+  // These parameters are intentionally unused in this server-side version
+  // as the actual processing happens client-side
+  Logger.log("aiedit-debug: processWithOllama called (server-side placeholder)", {
+    textLength: text ? text.length : 0,
+    hasInstruction: !!instruction,
+    model: model || "unknown"
+  });
+  
   return {
     success: false,
     message: 'This function should be called from client side'
@@ -1205,801 +1218,810 @@ function processWithOllama(text, instruction, model) {
 }
 
 /**
- * Debug test function to verify text location and replacement
+ * Process text with Gemini API
  * 
- * @return {Object} Debug test results
+ * @param {String} prompt - Full prompt to send to Gemini
+ * @return {Object} Response object with Gemini API response
  */
-function debugTestFirstComment() {
-  // Use CacheService for log persistence
-  const cache = CacheService.getScriptCache();
-  cache.remove('debugLogs'); // Clear previous logs
-
-  const logs = [];
-  function log(message, data = null) {
-    const entry = {
-
-      timestamp: new Date().toISOString(),
-      message: message,
-      data: data
+function processWithGemini(prompt) {
+  try {
+    // Get the API key
+    const apiKey = getGeminiApiKey();
+    
+    if (!apiKey) {
+      throw new Error("No Gemini API key found. Please add your API key in the settings.");
+    }
+    
+    Logger.log("aiedit-debug: Processing with Gemini API", {
+      promptLength: prompt.length
+    });
+    
+    // Set up the API request
+    const apiUrl = 'https://api.gemini.google.com/v1beta/models/gemini-2.0-flash:generate';
+    const requestOptions = {
+      method: 'post',
+      contentType: 'application/json',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      },
+      payload: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: prompt }
+            ]
+          }
+        ],
+        generationConfig: {
+          maxOutputTokens: 8192,
+          temperature: 0.7
+        }
+      }),
+      muteHttpExceptions: true
     };
-    logs.push(entry);
-    Logger.log(JSON.stringify(entry)); // Keep Logger.log for Execution Logs
-  }
-
-  let location = null;
-  let originalText = null;
-  let commentState = null;
-  
-  try {
-    log("Starting debug test");
     
-    // Get document and file ID
-    const doc = DocumentApp.getActiveDocument();
-    const fileId = doc.getId();
+    // Send the request
+    const response = UrlFetchApp.fetch(apiUrl, requestOptions);
+    const responseCode = response.getResponseCode();
+    const responseText = response.getContentText();
     
-    // Get comments
-    log("Fetching comments");
-    const comments = Drive.Comments.list(fileId, {
-      fields: "comments(id,content,quotedFileContent,anchor,resolved)",
-      pageSize: 100,
-      includeDeleted: false
-    }).comments || [];
+    Logger.log("aiedit-debug: Received Gemini API response", {
+      responseCode: responseCode,
+      responseLength: responseText.length
+    });
     
-    log("Retrieved comments", { count: comments.length });
+    if (responseCode !== 200) {
+      throw new Error(`Gemini API request failed with status ${responseCode}: ${responseText}`);
+    }
     
-    // Filter AI comments and log each one
-    log("Examining all comments");
-    const aiComments = comments.filter(comment => {
-      const isAI = comment.content.trim().toLowerCase().startsWith('ai:');
-      const isResolved = comment.resolved;
-      const hasQuoted = !!comment.quotedFileContent;
-      log("Comment found", {
-        id: comment.id,
-        isAI: isAI,
-        isResolved: isResolved,
-        hasQuoted: hasQuoted,
-        content: comment.content.trim(),
-        quotedText: comment.quotedFileContent ? comment.quotedFileContent.value : null,
-        anchor: comment.anchor,
-        resolved: comment.resolved
+    // Parse the response
+    const responseJson = JSON.parse(responseText);
+    
+    // Extracting the response based on actual Gemini API response format
+    // Format: { candidates: [{ content: { parts: [{ text: "..." }] } }] }
+    if (!responseJson.candidates || 
+        !responseJson.candidates[0] || 
+        !responseJson.candidates[0].content || 
+        !responseJson.candidates[0].content.parts || 
+        !responseJson.candidates[0].content.parts[0] || 
+        !responseJson.candidates[0].content.parts[0].text) {
+      
+      // Log the actual response structure for debugging
+      Logger.log("aiedit-debug: Unexpected Gemini API response format", {
+        responsePreview: JSON.stringify(responseJson).substring(0, 500) + "..."
       });
-      return isAI && !isResolved && hasQuoted;
-    });
-    
-    log("Filtered AI comments", { count: aiComments.length });
-    
-    if (aiComments.length === 0) {
-      throw new Error("No unprocessed AI comments found");
+      
+      throw new Error("Unexpected Gemini API response format");
     }
     
-    // Get first comment
-    const comment = aiComments[0];
-    log("Selected first comment for testing", {
-      id: comment.id,
-      content: comment.content,
-      hasQuotedText: !!comment.quotedFileContent,
-      quotedText: comment.quotedFileContent.value,
-      anchor: comment.anchor,
-      resolved: comment.resolved
-    });
+    const aiResponse = responseJson.candidates[0].content.parts[0].text || "";
     
-    // Store original state
-    commentState = comment.resolved;
-    originalText = comment.quotedFileContent.value;
-    
-    // Validate comment ID
-    log("Validating comment ID");
-    if (!validateCommentId(fileId, comment.id)) {
-      throw new Error("Invalid comment ID");
-    }
-    
-    // Get initial text location
-    log("Getting initial text location");
-    location = verifyTextLocation(fileId, comment.id, originalText);
-    
-    log("Initial text location result", location);
-    
-    if (!location) {
-      throw new Error("Could not verify initial text location");
-    }
-    
-    // Replace text with test message
-    log("Attempting text replacement");
-    const testText = "It works!!";
-    
-    // Replace the text
-    log("Replacing text", {
-      originalText: originalText,
-      testText: testText,
-      startOffset: location.startOffset,
-      endOffset: location.endOffset
-    });
-    
-    location.element.asText().deleteText(location.startOffset, location.endOffset);
-    location.element.asText().insertText(location.startOffset, testText);
-
-    // Pause briefly to make the change visible
-    sleep(2000);
-
-    try {
-      // Restore original text. Get a *fresh* location using the *original* text.
-      log("Restoring original text");
-      const finalLocation = verifyTextLocation(fileId, comment.id, originalText); // Use originalText!
-
-      if (!finalLocation) {
-        throw new Error("Could not verify location for restoration");
-      }
-
-      finalLocation.element.asText().deleteText(finalLocation.startOffset, finalLocation.endOffset);
-      finalLocation.element.asText().insertText(finalLocation.startOffset, originalText);
-    } catch (restoreError) {
-        log("Error during text restoration", { error: restoreError.message, stack: restoreError.stack});
-        throw new Error("Failed to restore original text: " + restoreError.message);
-    }
-
-    log("Debug test completed successfully");
-    cache.put('debugLogs', JSON.stringify(logs), 600); // Store logs, expire in 10 minutes
-    return { success: true }; // Return simple success, logs are in cache
-    
-  } catch (error) {
-    log("Debug test failed", {
-      error: error.message,
-      stack: error.stack
-    });
-    cache.put('debugLogs', JSON.stringify(logs), 600);
-    throw new Error(JSON.stringify({
-      success: false,
-      error: error.message // Only include message in top-level error
-    }));
-  }
-}
-
-/**
- * Get the debug logs
- * 
- * @return {String} The debug logs
- */
-function getDebugLogs() {
-  const cache = CacheService.getScriptCache();
-  const logs = cache.get('debugLogs');
-  cache.remove('debugLogs'); // Clear the cache after retrieval
-  return logs || '[]'; // Return empty array string if no logs
-}
-
-/**
- * Save the selected model to user properties
- * 
- * @param {String} modelName - Name of the selected model
- */
-function saveSelectedModel(modelName) {
-  const userProperties = PropertiesService.getUserProperties();
-  userProperties.setProperty('selectedModel', modelName);
-}
-
-/**
- * Get the previously selected model from user properties
- * 
- * @return {String} Previously selected model name or empty string
- */
-function getSelectedModel() {
-  const userProperties = PropertiesService.getUserProperties();
-  return userProperties.getProperty('selectedModel') || '';
-}
-
-/**
- * Get the full text of the document
- * 
- * @return {String} The document text
- */
-function getDocumentText() {
-  try {
-    const doc = DocumentApp.getActiveDocument();
-    const body = doc.getBody();
-    return body.getText();
+    return {
+      success: true,
+      response: aiResponse
+    };
   } catch (e) {
-    Logger.log("aiedit-debug: Error getting document text", {
+    Logger.log("aiedit-debug: Error processing with Gemini API", {
       error: e.toString(),
       stack: e.stack
     });
-    throw new Error("Failed to get document text: " + e.message);
+    return {
+      success: false,
+      error: e.message
+    };
   }
 }
 
 /**
- * Get the document content as markdown
+ * Apply a suggested change to the document
  * 
- * @return {String} The document content in markdown format
+ * @param {Object} suggestion - Suggestion object with location and revised text
+ * @return {Object} Result with success status
+ */
+function applySuggestedChange(suggestion) {
+  try {
+    if (!suggestion || !suggestion.location || !suggestion.revisedText) {
+      throw new Error("Invalid suggestion data");
+    }
+    
+    Logger.log("aiedit-debug: Applying suggested change", {
+      originalTextLength: suggestion.originalText.length,
+      revisedTextLength: suggestion.revisedText.length,
+      startOffset: suggestion.location.startOffset,
+      endOffset: suggestion.location.endOffset
+    });
+    
+    const textElement = suggestion.location.element.asText();
+    const elementLength = textElement.getText().length;
+    
+    // Validate indices are within bounds
+    if (suggestion.location.startOffset < 0 || suggestion.location.endOffset >= elementLength) {
+      throw new Error(`Invalid text range: start=${suggestion.location.startOffset}, end=${suggestion.location.endOffset}, length=${elementLength}`);
+    }
+    
+    // Replace text in the document
+    textElement.deleteText(suggestion.location.startOffset, suggestion.location.endOffset);
+    textElement.insertText(suggestion.location.startOffset, suggestion.revisedText);
+    
+    // Verify the replacement
+    const verifyText = textElement.getText().substring(
+      suggestion.location.startOffset, 
+      suggestion.location.startOffset + suggestion.revisedText.length
+    );
+    
+    if (verifyText !== suggestion.revisedText) {
+      // Try to restore original text if verification fails
+      textElement.deleteText(
+        suggestion.location.startOffset, 
+        suggestion.location.startOffset + suggestion.revisedText.length - 1
+      );
+      textElement.insertText(suggestion.location.startOffset, suggestion.originalText);
+      
+      throw new Error("Failed to verify text replacement");
+    }
+    
+    Logger.log("aiedit-debug: Successfully applied suggestion");
+    return { success: true };
+    
+  } catch (e) {
+    Logger.log("aiedit-debug: Error applying suggested change", {
+      error: e.toString(),
+      stack: e.stack
+    });
+    return {
+      success: false,
+      error: e.message
+    };
+  }
+}
+
+/**
+ * Save the Gemini API key to user properties
+ * 
+ * @param {String} apiKey - Gemini API key
+ * @return {Boolean} Success status
+ */
+function saveGeminiApiKey(apiKey) {
+  try {
+    if (!apiKey) {
+      Logger.log("aiedit-debug: No API key provided");
+      return false;
+    }
+    
+    Logger.log("aiedit-debug: Saving Gemini API key");
+    
+    const userProperties = PropertiesService.getUserProperties();
+    userProperties.setProperty('geminiApiKey', apiKey);
+    
+    return true;
+  } catch (e) {
+    Logger.log("aiedit-debug: Error saving Gemini API key", {
+      error: e.toString(),
+      stack: e.stack
+    });
+    return false;
+  }
+}
+
+/**
+ * Get the Gemini API key from user properties
+ * 
+ * @return {String} Gemini API key or empty string if not found
+ */
+function getGeminiApiKey() {
+  try {
+    const userProperties = PropertiesService.getUserProperties();
+    const apiKey = userProperties.getProperty('geminiApiKey');
+    
+    Logger.log("aiedit-debug: Retrieving Gemini API key", {
+      exists: !!apiKey
+    });
+    
+    return apiKey || '';
+  } catch (e) {
+    Logger.log("aiedit-debug: Error retrieving Gemini API key", {
+      error: e.toString(),
+      stack: e.stack
+    });
+    return '';
+  }
+}
+
+/**
+ * Parses AI-generated text to extract suggested changes using the specified format
+ * <suggestion>Original text<changeto/>Revised text</suggestion>
+ * 
+ * @param {string} aiResponse - The text response from the AI model
+ * @return {Array} An array of objects with original and revised text
+ */
+function parseSuggestedChanges(aiResponse) {
+  logDebug(LOG_CONFIG.CATEGORIES.DEBUG, "Parsing suggested changes from AI response", 
+           { responseLength: aiResponse ? aiResponse.length : 0 });
+  
+  if (!aiResponse) {
+    logDebug(LOG_CONFIG.CATEGORIES.ERROR, "No AI response to parse");
+    return [];
+  }
+  
+  const suggestionRegex = /<suggestion>([\s\S]*?)<changeto\/>([\s\S]*?)<\/suggestion>/g;
+  const suggestions = [];
+  let match;
+  
+  try {
+    while ((match = suggestionRegex.exec(aiResponse)) !== null) {
+      if (match.length === 3) {
+        suggestions.push({
+          original: match[1].trim(),
+          revised: match[2].trim()
+        });
+      }
+    }
+    
+    logDebug(LOG_CONFIG.CATEGORIES.DEBUG, `Found ${suggestions.length} suggestions in AI response`);
+    return suggestions;
+  } catch (error) {
+    logDebug(LOG_CONFIG.CATEGORIES.ERROR, "Error parsing suggested changes", { error: error.toString() });
+    return [];
+  }
+}
+
+/**
+ * Locates each suggestion's position in the document text
+ * 
+ * @param {string} documentText - The full document text
+ * @param {Array} suggestions - Array of suggestion objects with original and revised text
+ * @return {Array} The suggestions with their locations in the document
+ */
+function findSuggestionLocations(documentText, suggestions) {
+  logDebug(LOG_CONFIG.CATEGORIES.DEBUG, "Finding suggestion locations in document", 
+           { docLength: documentText.length, suggestionCount: suggestions.length });
+  
+  if (!documentText || !suggestions || suggestions.length === 0) {
+    logDebug(LOG_CONFIG.CATEGORIES.ERROR, "Missing document text or suggestions for location finding");
+    return [];
+  }
+  
+  const locatedSuggestions = [];
+  const unlocatedSuggestions = [];
+  
+  suggestions.forEach((suggestion, index) => {
+    try {
+      const exactIndex = documentText.indexOf(suggestion.original);
+      
+      if (exactIndex !== -1) {
+        // Found exact match
+        locatedSuggestions.push({
+          ...suggestion,
+          index: exactIndex,
+          length: suggestion.original.length
+        });
+        return;
+      }
+      
+      // No exact match found, try finding similar matches
+      let bestMatch = null;
+      let bestScore = 0;
+      
+      // Split document into chunks of similar size to the original text
+      const chunkSize = Math.max(100, suggestion.original.length * 2);
+      for (let i = 0; i < documentText.length - suggestion.original.length; i += chunkSize / 2) {
+        const chunk = documentText.substr(i, chunkSize);
+        const similarity = calculateSimilarity(chunk, suggestion.original);
+        
+        if (similarity > bestScore && similarity > 0.7) { // Only consider matches with high similarity
+          bestScore = similarity;
+          bestMatch = {
+            index: i,
+            length: chunk.length
+          };
+        }
+      }
+      
+      if (bestMatch) {
+        locatedSuggestions.push({
+          ...suggestion,
+          index: bestMatch.index,
+          length: suggestion.original.length,
+          fuzzyMatch: true,
+          similarity: bestScore
+        });
+      } else {
+        unlocatedSuggestions.push(suggestion);
+      }
+    } catch (error) {
+      logDebug(LOG_CONFIG.CATEGORIES.ERROR, `Error locating suggestion ${index}`, { error: error.toString() });
+      unlocatedSuggestions.push(suggestion);
+    }
+  });
+  
+  logDebug(LOG_CONFIG.CATEGORIES.DEBUG, `Located ${locatedSuggestions.length} suggestions, failed to locate ${unlocatedSuggestions.length}`);
+  
+  return {
+    located: locatedSuggestions,
+    unlocated: unlocatedSuggestions
+  };
+}
+
+/**
+ * Converts the active document to markdown format
+ * 
+ * @return {string} Document content in markdown format
  */
 function getDocumentAsMarkdown() {
   try {
     const doc = DocumentApp.getActiveDocument();
     const body = doc.getBody();
+    const numElements = body.getNumChildren();
     let markdown = '';
     
-    // Process each child element
-    const numChildren = body.getNumChildren();
+    logDebug(LOG_CONFIG.CATEGORIES.DEBUG, "Converting document to markdown", { numElements });
     
-    for (let i = 0; i < numChildren; i++) {
-      const child = body.getChild(i);
-      const elementType = child.getType();
+    // Process each element in the document
+    for (let i = 0; i < numElements; i++) {
+      const element = body.getChild(i);
+      const type = element.getType();
       
-      if (elementType === DocumentApp.ElementType.PARAGRAPH) {
-        const paragraph = child.asParagraph();
-        const text = paragraph.getText();
-        if (!text.trim()) {
-          markdown += '\n\n';
-          continue;
-        }
-        
-        // Handle headings
-        const heading = paragraph.getHeading();
-        if (heading === DocumentApp.ParagraphHeading.HEADING1) {
-          markdown += '# ' + text + '\n\n';
-        } else if (heading === DocumentApp.ParagraphHeading.HEADING2) {
-          markdown += '## ' + text + '\n\n';
-        } else if (heading === DocumentApp.ParagraphHeading.HEADING3) {
-          markdown += '### ' + text + '\n\n';
-        } else if (heading === DocumentApp.ParagraphHeading.HEADING4) {
-          markdown += '#### ' + text + '\n\n';
-        } else if (heading === DocumentApp.ParagraphHeading.HEADING5) {
-          markdown += '##### ' + text + '\n\n';
-        } else if (heading === DocumentApp.ParagraphHeading.HEADING6) {
-          markdown += '###### ' + text + '\n\n';
-        } else {
-          // Regular paragraph
-          markdown += text + '\n\n';
-        }
-      } else if (elementType === DocumentApp.ElementType.LIST_ITEM) {
-        const listItem = child.asListItem();
-        const text = listItem.getText();
-        const glyphType = listItem.getGlyphType();
-        
-        if (glyphType === DocumentApp.GlyphType.BULLET || 
-            glyphType === DocumentApp.GlyphType.HOLLOW_BULLET || 
-            glyphType === DocumentApp.GlyphType.SQUARE_BULLET) {
-          markdown += '* ' + text + '\n';
-        } else {
-          // Numbered list
-          markdown += '1. ' + text + '\n';
-        }
-      } else if (elementType === DocumentApp.ElementType.HORIZONTAL_RULE) {
-        markdown += '---\n\n';
+      switch (type) {
+        case DocumentApp.ElementType.PARAGRAPH:
+          markdown += processParagraphToMarkdown(element.asParagraph());
+          break;
+        case DocumentApp.ElementType.TABLE:
+          markdown += processTableToMarkdown(element.asTable());
+          break;
+        case DocumentApp.ElementType.LIST_ITEM:
+          markdown += processListItemToMarkdown(element.asListItem());
+          break;
+        case DocumentApp.ElementType.HORIZONTAL_RULE:
+          markdown += '---\n\n';
+          break;
+        // Add other element types as needed
       }
     }
     
-    Logger.log("aiedit-debug: Converted document to markdown", {
-      markdownLength: markdown.length
-    });
+    logDebug(LOG_CONFIG.CATEGORIES.DEBUG, "Completed document to markdown conversion", 
+             { markdownLength: markdown.length });
     
     return markdown;
-  } catch (e) {
-    Logger.log("aiedit-debug: Error converting document to markdown", {
-      error: e.toString(),
-      stack: e.stack
-    });
-    throw new Error("Failed to convert document to markdown: " + e.message);
+  } catch (error) {
+    logDebug(LOG_CONFIG.CATEGORIES.ERROR, "Error converting document to markdown", 
+             { error: error.toString() });
+    return '';
   }
 }
 
 /**
- * Convert markdown to Google Docs formatting
+ * Converts a paragraph element to markdown
  * 
- * @param {String} markdown - Markdown text to convert
- * @param {DocumentApp.Body} body - Document body to append to
- * @return {Array} Array of paragraph elements created
+ * @param {Paragraph} paragraph - The paragraph element
+ * @return {string} Markdown representation of the paragraph
  */
-function convertMarkdownToDoc(markdown, body) {
-  if (!markdown || !body) {
-    return [];
+function processParagraphToMarkdown(paragraph) {
+  const text = paragraph.getText();
+  const headingType = paragraph.getHeading();
+  
+  // Skip empty paragraphs
+  if (!text || text.trim().length === 0) {
+    return '\n';
   }
   
-  Logger.log("aiedit-debug: Converting markdown to Google Docs format", {
-    markdownLength: markdown.length
-  });
-  
-  const paragraphs = [];
-  
-  // Split the markdown into blocks (paragraphs, lists, etc.)
-  const blocks = markdown.split(/\n{2,}/);
-  
-  for (let block of blocks) {
-    block = block.trim();
-    if (!block) continue;
-    
-    // Check for horizontal rule (---, ***, ___)
-    if (block.match(/^(\*{3,}|-{3,}|_{3,})$/)) {
-      body.appendHorizontalRule();
-      continue;
-    }
-    
-    // Check for headings (# Heading)
-    const headingMatch = block.match(/^(#{1,6})\s+(.+)$/);
-    if (headingMatch) {
-      const level = headingMatch[1].length;
-      const text = headingMatch[2].trim();
-      
-      const para = body.appendParagraph(text);
-      
-      // Map markdown heading levels to Google Docs heading levels
-      switch (level) {
-        case 1:
-          para.setHeading(DocumentApp.ParagraphHeading.HEADING1);
-          break;
-        case 2:
-          para.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-          break;
-        case 3:
-          para.setHeading(DocumentApp.ParagraphHeading.HEADING3);
-          break;
-        case 4:
-          para.setHeading(DocumentApp.ParagraphHeading.HEADING4);
-          break;
-        case 5:
-        case 6:
-          para.setHeading(DocumentApp.ParagraphHeading.HEADING5);
-          break;
-      }
-      
-      paragraphs.push(para);
-      continue;
-    }
-    
-    // Check for blockquotes
-    if (block.split('\n').every(line => line.trim().match(/^>\s+.+/) || line.trim() === '>')) {
-      const quoteLines = block.split('\n')
-        .map(line => line.replace(/^>\s?/, '').trim())
-        .filter(line => line);
-      
-      const quoteText = quoteLines.join('\n');
-      const para = body.appendParagraph(quoteText);
-      para.setIndentStart(36); // Indent by 0.5 inches (36 points)
-      para.setIndentFirstLine(36);
-      para.setBackgroundColor('#f0f0f0');
-      para.setBorderLeft(true);
-      para.setLeftBorder('#cccccc', 3);
-      
-      paragraphs.push(para);
-      continue;
-    }
-    
-    // Check for unordered lists
-    if (block.split('\n').every(line => line.trim().match(/^[\*\-\+]\s+.+/) || line.trim() === '')) {
-      const listItems = block.split('\n').filter(line => line.trim());
-      
-      for (const item of listItems) {
-        const text = item.replace(/^[\*\-\+]\s+/, '').trim();
-        if (!text) continue;
-        
-        const para = body.appendListItem(text);
-        para.setGlyphType(DocumentApp.GlyphType.BULLET);
-        paragraphs.push(para);
-      }
-      continue;
-    }
-    
-    // Check for ordered lists
-    if (block.split('\n').every(line => line.trim().match(/^\d+\.\s+.+/) || line.trim() === '')) {
-      const listItems = block.split('\n').filter(line => line.trim());
-      
-      for (const item of listItems) {
-        const text = item.replace(/^\d+\.\s+/, '').trim();
-        if (!text) continue;
-        
-        const para = body.appendListItem(text);
-        para.setGlyphType(DocumentApp.GlyphType.NUMBER);
-        paragraphs.push(para);
-      }
-      continue;
-    }
-    
-    // Check for code blocks (```code```)
-    const codeBlockMatch = block.match(/^```(?:\w+)?\n([\s\S]+)\n```$/);
-    if (codeBlockMatch) {
-      const codeText = codeBlockMatch[1];
-      const para = body.appendParagraph(codeText);
-      const textObj = para.editAsText();
-      
-      // Apply code formatting
-      textObj.setFontFamily(0, codeText.length - 1, 'Courier New');
-      textObj.setBackgroundColor(0, codeText.length - 1, '#f0f0f0');
-      para.setIndentStart(36);
-      para.setIndentFirstLine(36);
-      
-      paragraphs.push(para);
-      continue;
-    }
-    
-    // Process inline formatting for regular paragraphs
-    const para = body.appendParagraph('');
-    paragraphs.push(para);
-    
-    // Process the paragraph text with inline formatting
-    const text = para.editAsText();
-    
-    // Handle inline formatting
-    let currentText = block;
-    let currentPosition = 0;
-    
-    // First, process links [text](url)
-    const processedText = processLinks(currentText, text);
-    
-    // Then process other inline formatting
-    processInlineFormatting(processedText.remainingText, text, processedText.currentPosition);
-  }
-  
-  Logger.log("aiedit-debug: Markdown conversion complete", {
-    paragraphsCreated: paragraphs.length
-  });
-  
-  return paragraphs;
-}
-
-/**
- * Process markdown links in text
- * 
- * @param {String} currentText - Text to process
- * @param {Text} textElement - Google Docs Text element to append to
- * @return {Object} Object with remaining text and current position
- */
-function processLinks(currentText, textElement) {
-  let currentPosition = 0;
-  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
-  let linkMatch;
-  let lastIndex = 0;
-  
-  while ((linkMatch = linkRegex.exec(currentText)) !== null) {
-    // Add text before the link
-    const beforeText = currentText.substring(lastIndex, linkMatch.index);
-    if (beforeText) {
-      textElement.appendText(beforeText);
-      currentPosition += beforeText.length;
-    }
-    
-    // Add the link text
-    const linkText = linkMatch[1];
-    const linkUrl = linkMatch[2];
-    
-    textElement.appendText(linkText);
-    
-    // Apply link formatting
-    if (currentPosition <= textElement.getText().length - 1) {
-      textElement.setLinkUrl(currentPosition, currentPosition + linkText.length - 1, linkUrl);
-      textElement.setForegroundColor(currentPosition, currentPosition + linkText.length - 1, '#1155cc');
-      textElement.setUnderline(currentPosition, currentPosition + linkText.length - 1, true);
-    }
-    
-    currentPosition += linkText.length;
-    lastIndex = linkMatch.index + linkMatch[0].length;
-  }
-  
-  // Return remaining text and current position
-  return {
-    remainingText: currentText.substring(lastIndex),
-    currentPosition: currentPosition
-  };
-}
-
-/**
- * Process inline markdown formatting (bold, italic, code)
- * 
- * @param {String} text - Text to process
- * @param {Text} textElement - Google Docs Text element to append to
- * @param {Number} startPosition - Starting position in the text element
- */
-function processInlineFormatting(text, textElement, startPosition) {
-  if (!text) return;
-  
-  let currentPosition = startPosition || 0;
-  
-  // Split by formatting markers
-  const segments = text.split(/(\*\*.*?\*\*|\*.*?\*|__.*?__|_.*?_|`.*?`)/);
-  
-  for (const segment of segments) {
-    if (!segment) continue;
-    
-    // Bold: **text** or __text__
-    const boldMatch = segment.match(/^(\*\*|__)(.*?)(\*\*|__)$/);
-    if (boldMatch) {
-      textElement.appendText(boldMatch[2]);
-      
-      // Apply bold formatting if within bounds
-      if (currentPosition <= textElement.getText().length - 1) {
-        textElement.setBold(currentPosition, currentPosition + boldMatch[2].length - 1, true);
-      }
-      
-      currentPosition += boldMatch[2].length;
-      continue;
-    }
-    
-    // Italic: *text* or _text_
-    const italicMatch = segment.match(/^(\*|_)(.*?)(\*|_)$/);
-    if (italicMatch) {
-      textElement.appendText(italicMatch[2]);
-      
-      // Apply italic formatting if within bounds
-      if (currentPosition <= textElement.getText().length - 1) {
-        textElement.setItalic(currentPosition, currentPosition + italicMatch[2].length - 1, true);
-      }
-      
-      currentPosition += italicMatch[2].length;
-      continue;
-    }
-    
-    // Code: `text`
-    const codeMatch = segment.match(/^`(.*?)`$/);
-    if (codeMatch) {
-      textElement.appendText(codeMatch[1]);
-      
-      // Apply code formatting if within bounds
-      if (currentPosition <= textElement.getText().length - 1) {
-        textElement.setFontFamily(currentPosition, currentPosition + codeMatch[1].length - 1, 'Courier New');
-        textElement.setBackgroundColor(currentPosition, currentPosition + codeMatch[1].length - 1, '#f0f0f0');
-      }
-      
-      currentPosition += codeMatch[1].length;
-      continue;
-    }
-    
-    // Regular text
-    textElement.appendText(segment);
-    currentPosition += segment.length;
+  // Handle headings
+  switch (headingType) {
+    case DocumentApp.ParagraphHeading.HEADING1:
+      return `# ${text}\n\n`;
+    case DocumentApp.ParagraphHeading.HEADING2:
+      return `## ${text}\n\n`;
+    case DocumentApp.ParagraphHeading.HEADING3:
+      return `### ${text}\n\n`;
+    case DocumentApp.ParagraphHeading.HEADING4:
+      return `#### ${text}\n\n`;
+    case DocumentApp.ParagraphHeading.HEADING5:
+      return `##### ${text}\n\n`;
+    case DocumentApp.ParagraphHeading.HEADING6:
+      return `###### ${text}\n\n`;
+    default:
+      // Process inline text formatting
+      return `${processTextWithFormatting(paragraph)}\n\n`;
   }
 }
 
 /**
- * Append text to the end of the document with a separator
+ * Converts a list item to markdown
  * 
- * @param {String} text - Text to append
- * @return {Boolean} Success status
+ * @param {ListItem} listItem - The list item element
+ * @return {string} Markdown representation of the list item
  */
-function appendToDocument(text) {
+function processListItemToMarkdown(listItem) {
+  const text = listItem.getText();
+  const glyphType = listItem.getGlyphType();
+  const indentLevel = listItem.getNestingLevel();
+  const indent = '  '.repeat(indentLevel);
+  
+  // Handle different list types
+  if (glyphType === DocumentApp.GlyphType.NUMBER) {
+    return `${indent}1. ${text}\n`;
+  } else {
+    return `${indent}* ${text}\n`;
+  }
+}
+
+/**
+ * Converts a table to markdown
+ * 
+ * @param {Table} table - The table element
+ * @return {string} Markdown representation of the table
+ */
+function processTableToMarkdown(table) {
+  let markdown = '';
+  const numRows = table.getNumRows();
+  
+  for (let i = 0; i < numRows; i++) {
+    const row = table.getRow(i);
+    const numCells = row.getNumCells();
+    const cells = [];
+    
+    for (let j = 0; j < numCells; j++) {
+      cells.push(row.getCell(j).getText().trim());
+    }
+    
+    markdown += `| ${cells.join(' | ')} |\n`;
+    
+    // Add header separator row after first row
+    if (i === 0) {
+      markdown += `| ${cells.map(() => '---').join(' | ')} |\n`;
+    }
+  }
+  
+  return markdown + '\n';
+}
+
+/**
+ * Processes text with inline formatting
+ * 
+ * @param {Paragraph} paragraph - The paragraph containing text
+ * @return {string} Text with markdown formatting
+ */
+function processTextWithFormatting(paragraph) {
+  const text = paragraph.getText();
+  let markdown = text;
+  
+  // This is a simplified version - a full implementation would need to handle
+  // overlapping formatting and other complexities
+  const textObj = paragraph.editAsText();
+  
+  // Check for bold text
+  for (let i = 0; i < text.length; i++) {
+    const isBold = textObj.isBold(i);
+    const isItalic = textObj.isItalic(i);
+    
+    // This is just a placeholder - real implementation would be more complex
+    // to handle proper markdown conversion of formatting
+  }
+  
+  // For simplicity, we're just returning the plain text
+  // A complete implementation would handle all text formatting
+  return markdown;
+}
+
+/**
+ * Processes the document and generates inline suggestions based on user prompt
+ * 
+ * @param {string} prompt - The user prompt for processing
+ * @param {string} modelName - The model to use for processing
+ * @return {Object} Object with success status and suggestions
+ */
+function processDocumentForInlineSuggestions(prompt, modelName) {
   try {
-    if (!text) {
-      throw new Error("No text provided to append");
+    Logger.log("aiedit-debug: Processing document for inline suggestions", {
+      promptLength: prompt.length,
+      modelName: modelName
+    });
+    
+    // Get document content as markdown
+    const documentMarkdown = getDocumentAsMarkdown();
+    
+    // Prepare the API request with suggestion format instructions
+    const formattingInstructions = `
+You are an AI editor tasked with improving the clarity, grammar, and overall quality of the following document. 
+For each identified improvement, output an inline suggestion using the following format:
+
+<suggestion>Original text<changeto/>Revised text</suggestion>
+
+Please adhere to these instructions:
+1. Only output the suggestions where changes are needed.
+2. Do not reproduce the entire document.
+3. Make only minimal, targeted edits—do not alter parts of the document that don't need changes.
+4. Each suggestion should contain the exact original text that needs to be replaced.
+5. The revised text should maintain the same general meaning but improve clarity, grammar, or style.
+`;
+
+    // Create the full prompt
+    const fullPrompt = `${formattingInstructions}\n\n${prompt}\n\nHere is the document content:\n\n${documentMarkdown}`;
+    
+    let aiResponse;
+    
+    // Check if using Gemini API (model name starts with "gemini")
+    if (modelName.toLowerCase().startsWith("gemini")) {
+      // Process with Gemini API
+      const geminiResult = processWithGemini(fullPrompt);
+      
+      if (!geminiResult.success) {
+        throw new Error("Gemini API processing failed: " + (geminiResult.error || "Unknown error"));
+      }
+      
+      aiResponse = geminiResult.response;
+    } else {
+      // Process with Ollama API
+      const apiUrl = 'http://localhost:11434/api/generate';
+      const requestOptions = {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({
+          model: modelName,
+          prompt: fullPrompt,
+          stream: false
+        }),
+        muteHttpExceptions: true
+      };
+      
+      Logger.log("aiedit-debug: Sending Ollama API request", {
+        modelName: modelName,
+        promptPreview: prompt.substring(0, Math.min(100, prompt.length)) + 
+                      (prompt.length > 100 ? "..." : ""),
+        documentLength: documentMarkdown.length
+      });
+      
+      // Send the request
+      const response = UrlFetchApp.fetch(apiUrl, requestOptions);
+      const responseCode = response.getResponseCode();
+      const responseText = response.getContentText();
+      
+      Logger.log("aiedit-debug: Received Ollama API response", {
+        responseCode: responseCode,
+        responseLength: responseText.length
+      });
+      
+      if (responseCode !== 200) {
+        throw new Error(`Ollama API request failed with status ${responseCode}: ${responseText}`);
+      }
+      
+      // Parse the response
+      const responseJson = JSON.parse(responseText);
+      aiResponse = responseJson.response;
     }
     
-    Logger.log("aiedit-debug: Appending text to document", {
-      textLength: text.length
+    // Parse suggested changes
+    const suggestions = parseSuggestedChanges(aiResponse);
+    
+    // Find text locations for suggestions
+    const locatedSuggestions = findSuggestionLocations(documentMarkdown, suggestions);
+    
+    Logger.log("aiedit-debug: Completed processing document for inline suggestions", {
+      totalSuggestions: suggestions.length,
+      locatedSuggestions: locatedSuggestions.length
     });
     
-    const doc = DocumentApp.getActiveDocument();
-    const body = doc.getBody();
-    
-    // Add a horizontal separator
-    body.appendHorizontalRule();
-    
-    // Add a paragraph with the current date and time
-    const dateTime = new Date().toLocaleString();
-    const header = body.appendParagraph("AI Response (" + dateTime + ")");
-    header.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-    
-    // Convert markdown to Google Docs formatting
-    convertMarkdownToDoc(text, body);
-    
-    Logger.log("aiedit-debug: Successfully appended text to document");
-    return true;
-  } catch (e) {
-    Logger.log("aiedit-debug: Error appending text to document", {
-      error: e.toString(),
-      stack: e.stack
-    });
-    throw new Error("Failed to append text to document: " + e.message);
-  }
-}
-
-/**
- * Save the prompt library to user properties
- * 
- * @param {String} promptsJson - JSON string of prompts
- */
-function savePromptLibrary(promptsJson) {
-  try {
-    if (!promptsJson) {
-      throw new Error("No prompts provided");
-    }
-    
-    // Validate JSON
-    JSON.parse(promptsJson);
-    
-    Logger.log("aiedit-debug: Saving prompt library", {
-      length: promptsJson.length
-    });
-    
-    const userProperties = PropertiesService.getUserProperties();
-    userProperties.setProperty('promptLibrary', promptsJson);
-    
-    return true;
-  } catch (e) {
-    Logger.log("aiedit-debug: Error saving prompt library", {
-      error: e.toString(),
-      stack: e.stack
-    });
-    throw new Error("Failed to save prompt library: " + e.message);
-  }
-}
-
-/**
- * Get the prompt library from user properties
- * 
- * @return {String} JSON string of prompts
- */
-function getPromptLibrary() {
-  try {
-    const userProperties = PropertiesService.getUserProperties();
-    const promptsJson = userProperties.getProperty('promptLibrary');
-    
-    Logger.log("aiedit-debug: Getting prompt library", {
-      exists: !!promptsJson,
-      length: promptsJson ? promptsJson.length : 0
-    });
-    
-    return promptsJson || '';
-  } catch (e) {
-    Logger.log("aiedit-debug: Error getting prompt library", {
-      error: e.toString(),
-      stack: e.stack
-    });
-    throw new Error("Failed to get prompt library: " + e.message);
-  }
-}
-
-/**
- * Save user settings
- * 
- * @param {String} settingsJson - JSON string of settings
- */
-function saveSettings(settingsJson) {
-  try {
-    if (!settingsJson) {
-      throw new Error("No settings provided");
-    }
-    
-    // Validate JSON
-    JSON.parse(settingsJson);
-    
-    Logger.log("aiedit-debug: Saving settings", {
-      length: settingsJson.length
-    });
-    
-    const userProperties = PropertiesService.getUserProperties();
-    userProperties.setProperty('userSettings', settingsJson);
-    
-    return true;
-  } catch (e) {
-    Logger.log("aiedit-debug: Error saving settings", {
-      error: e.toString(),
-      stack: e.stack
-    });
-    throw new Error("Failed to save settings: " + e.message);
-  }
-}
-
-/**
- * Get user settings
- * 
- * @return {Object} Settings object
- */
-function getSettings() {
-  try {
-    const userProperties = PropertiesService.getUserProperties();
-    const settingsJson = userProperties.getProperty('userSettings');
-    
-    Logger.log("aiedit-debug: Getting settings", {
-      exists: !!settingsJson,
-      length: settingsJson ? settingsJson.length : 0
-    });
-    
-    if (settingsJson) {
-      return JSON.parse(settingsJson);
-    }
-    
-    // Default settings
     return {
-      showDebugTools: false,
-      timeout: 300000 // 5 minutes
+      success: true,
+      suggestions: locatedSuggestions,
+      unlocatedCount: suggestions.length - locatedSuggestions.length,
+      totalSuggestions: suggestions.length
     };
   } catch (e) {
-    Logger.log("aiedit-debug: Error getting settings", {
+    Logger.log("aiedit-debug: Error processing document for inline suggestions", {
       error: e.toString(),
       stack: e.stack
     });
-    
-    // Return default settings on error
     return {
-      showDebugTools: false,
-      timeout: 300000 // 5 minutes
+      success: false,
+      error: e.message
     };
   }
 }
 
 /**
- * Get server logs for debugging
- * 
- * @return {String} JSON string of logs
+ * Save user settings to user properties
+ * @param {string} settingsJson - JSON string of user settings
+ * @returns {boolean} - Success status
  */
-function getServerLogs() {
+function saveUserSettings(settingsJson) {
   try {
-    const logs = [];
-    const now = new Date();
+    // Log the request
+    logDebug(LOG_CONFIG.CATEGORIES.STATE, "Saving user settings", { settingsLength: settingsJson.length });
     
-    // Get standard Logger logs
-    const standardLogs = Logger.getLog();
-    if (standardLogs) {
-      const logLines = standardLogs.split('\n').filter(line => line.trim());
-      logLines.forEach(line => {
-        let type = 'info';
-        let message = line;
-        
-        // Try to parse debug/error indicators
-        if (line.includes('aiedit-debug:')) {
-          type = 'debug';
-          message = line.split('aiedit-debug:')[1].trim();
-          try {
-            // Try to parse JSON data if present
-            const jsonStart = message.indexOf('{');
-            if (jsonStart > -1) {
-              const jsonPart = message.substring(jsonStart);
-              const data = JSON.parse(jsonPart);
-              message = message.substring(0, jsonStart).trim();
-              logs.push({
-                timestamp: now.toISOString(),
-                type: type,
-                message: message,
-                data: data
-              });
-              return;
-            }
-          } catch (e) {
-            // If JSON parsing fails, continue with regular message
-          }
-        } else if (line.toLowerCase().includes('error')) {
-          type = 'error';
-        }
-        
-        logs.push({
-          timestamp: now.toISOString(),
-          type: type,
-          message: message.trim()
-        });
-      });
+    // Save to user properties
+    PropertiesService.getUserProperties().setProperty('userSettings', settingsJson);
+    
+    return true;
+  } catch (error) {
+    logDebug(LOG_CONFIG.CATEGORIES.ERROR, "Error saving user settings", { error: error.toString() });
+    throw new Error("Failed to save settings: " + error.message);
+  }
+}
+
+/**
+ * Get user settings from user properties
+ * @returns {string} - JSON string of user settings
+ */
+function getUserSettings() {
+  try {
+    // Get from user properties
+    const settings = PropertiesService.getUserProperties().getProperty('userSettings');
+    
+    logDebug(LOG_CONFIG.CATEGORIES.STATE, "Retrieved user settings", { 
+      exists: !!settings,
+      settingsLength: settings ? settings.length : 0 
+    });
+    
+    return settings || '{}';
+  } catch (error) {
+    logDebug(LOG_CONFIG.CATEGORIES.ERROR, "Error retrieving user settings", { error: error.toString() });
+    throw new Error("Failed to retrieve settings: " + error.message);
+  }
+}
+
+/**
+ * Save the selected model preference
+ * @param {string} modelName - The name of the selected model
+ * @returns {boolean} - Success status
+ */
+function saveModelPreference(modelName) {
+  try {
+    if (!modelName) {
+      logDebug(LOG_CONFIG.CATEGORIES.ERROR, "No model name provided to save");
+      return false;
     }
     
-    // Get debug session logs from cache
-    const cache = CacheService.getScriptCache();
-    const debugLogs = cache.get('debugLogs');
-    if (debugLogs) {
-      try {
-        const parsedDebugLogs = JSON.parse(debugLogs);
-        logs.push(...parsedDebugLogs);
-      } catch (e) {
-        logs.push({
-          timestamp: now.toISOString(),
-          type: 'error',
-          message: 'Failed to parse debug logs: ' + e.message
-        });
-      }
+    logDebug(LOG_CONFIG.CATEGORIES.STATE, "Saving model preference", { modelName: modelName });
+    
+    // Get current settings
+    const userProperties = PropertiesService.getUserProperties();
+    const settingsJson = userProperties.getProperty('userSettings') || '{}';
+    
+    try {
+      // Parse current settings
+      const settings = JSON.parse(settingsJson);
+      
+      // Update model preference
+      settings.selectedModel = modelName;
+      
+      // Save updated settings
+      userProperties.setProperty('userSettings', JSON.stringify(settings));
+      
+      logDebug(LOG_CONFIG.CATEGORIES.STATE, "Model preference saved successfully", { modelName: modelName });
+      return true;
+    } catch (parseError) {
+      // If settings JSON is invalid, create new settings object
+      const settings = { selectedModel: modelName };
+      userProperties.setProperty('userSettings', JSON.stringify(settings));
+      
+      logDebug(LOG_CONFIG.CATEGORIES.STATE, "Created new settings with model preference", { modelName: modelName });
+      return true;
     }
+  } catch (error) {
+    logDebug(LOG_CONFIG.CATEGORIES.ERROR, "Error saving model preference", { error: error.toString() });
+    return false;
+  }
+}
+
+/**
+ * Get debug logs from the server
+ * @returns {string} - JSON string of recent logs
+ */
+function getDebugLogs() {
+  try {
+    // Get logs from Logger
+    const logs = Logger.getLog();
     
-    // If no logs found at all
-    if (logs.length === 0) {
-      return JSON.stringify({
-        timestamp: now.toISOString(),
-        type: 'info',
-        message: "No logs found in the last 24 hours"
-      });
-    }
+    // Log that we're retrieving logs (meta-logging)
+    logDebug(LOG_CONFIG.CATEGORIES.DEBUG, "Retrieving debug logs", { 
+      logSize: logs ? logs.length : 0 
+    });
     
-    // Sort logs by timestamp
-    logs.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-    
-    return JSON.stringify(logs, null, 2);
-    
-  } catch (e) {
+    return logs || "No logs available";
+  } catch (error) {
+    logDebug(LOG_CONFIG.CATEGORIES.ERROR, "Error retrieving debug logs", { error: error.toString() });
     return JSON.stringify({
-      timestamp: new Date().toISOString(),
-      type: 'error',
-      message: 'Failed to retrieve logs: ' + e.message,
-      stack: e.stack
+      error: "Failed to retrieve logs: " + error.message,
+      timestamp: new Date().toISOString()
     });
+  }
+}
+
+/**
+ * Test function to process the first AI comment
+ * Used for debugging purposes
+ * @returns {Object} Result object with status and details
+ */
+function testProcessFirstComment() {
+  try {
+    logDebug(LOG_CONFIG.CATEGORIES.DEBUG, "Starting test of first AI comment");
+    
+    // Get all AI comments
+    const comments = getAIComments();
+    
+    // If no comments found, return error
+    if (!comments || comments.length === 0) {
+      logDebug(LOG_CONFIG.CATEGORIES.DEBUG, "No AI comments found for testing");
+      return {
+        success: false,
+        error: "No AI comments found to test"
+      };
+    }
+    
+    // Get the first comment
+    const firstComment = comments[0];
+    
+    // Log details about the comment
+    logDebug(LOG_CONFIG.CATEGORIES.DEBUG, "Found first AI comment for testing", {
+      commentId: firstComment.id,
+      instruction: firstComment.instruction,
+      textLength: firstComment.text.length,
+      state: firstComment.state
+    });
+    
+    // Return the comment details but don't actually process it
+    // This is safer for testing purposes
+    return {
+      success: true,
+      comment: {
+        id: firstComment.id,
+        instruction: firstComment.instruction,
+        textPreview: firstComment.text.substring(0, Math.min(100, firstComment.text.length)) + 
+                    (firstComment.text.length > 100 ? "..." : ""),
+        state: firstComment.state
+      }
+    };
+  } catch (error) {
+    // Log the error
+    logDebug(LOG_CONFIG.CATEGORIES.ERROR, "Error testing first AI comment", {
+      error: error.toString(),
+      stack: error.stack
+    });
+    
+    // Return error details
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Checks if the current user is a first-time user
+ * @return {boolean} True if the user is a first-time user, false otherwise
+ */
+function checkFirstTimeUser() {
+  try {
+    const userProperties = PropertiesService.getUserProperties();
+    const hasSeenIntro = userProperties.getProperty('hasSeenIntro');
+    
+    if (!hasSeenIntro) {
+      // Set the flag so they won't see the intro again
+      userProperties.setProperty('hasSeenIntro', 'true');
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    logDebug(LOG_CONFIG.CATEGORIES.ERROR, 'Error checking first time user status', {error: error.toString()});
+    return false;
+  }
+}
+
+/**
+ * Resets the user experience by clearing all user properties and settings
+ * For debugging purposes only
+ * @return {boolean} True if reset was successful, false otherwise
+ */
+function resetUserExperience() {
+  try {
+    const userProperties = PropertiesService.getUserProperties();
+    userProperties.deleteAllProperties();
+    
+    logDebug(LOG_CONFIG.CATEGORIES.DEBUG, 'Reset user experience - all properties deleted');
+    return true;
+  } catch (error) {
+    logDebug(LOG_CONFIG.CATEGORIES.ERROR, 'Error resetting user experience', {error: error.toString()});
+    return false;
   }
 }
