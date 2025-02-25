@@ -1672,6 +1672,14 @@
         initSections();
         initSubsections();
         
+        // Initialize debug section visibility before other initializations
+        const debugSection = document.getElementById('debugSection');
+        const debugInfoPanel = document.getElementById('debugInfoPanel');
+        if (debugSection && debugInfoPanel) {
+          debugSection.style.display = 'none';
+          debugInfoPanel.style.display = 'none';
+        }
+        
         // Then initialize the rest of the sidebar
         initSidebar();
         
@@ -1682,7 +1690,10 @@
             const state = JSON.parse(savedState);
             selectedModel = state.selectedModel || '';
             if (selectedModel) {
-              document.getElementById('modelSelect').value = selectedModel;
+              const modelSelect = document.getElementById('modelSelect');
+              if (modelSelect) {
+                modelSelect.value = selectedModel;
+              }
             }
             // Check if sidebar was open
             if (state.isOpen) {
@@ -1695,6 +1706,15 @@
         
         // Initial UI setup based on selected edit mode
         updateEditModeUI();
+        
+        // Initialize debug mode if enabled in settings
+        if (userSettings.showDebugTools) {
+          const debugToggle = document.getElementById('debug-toggle');
+          if (debugToggle) {
+            debugToggle.checked = true;
+            toggleDebugSection(true);
+          }
+        }
       };
       
       // Cleanup function to handle any necessary cleanup when the sidebar is closed
@@ -2236,16 +2256,24 @@
       
       // Update debug info panel
       function updateDebugInfo(settings) {
+        const debugInfoPanel = document.getElementById('debugInfoPanel');
+        if (!debugInfoPanel) return;
+
         if (settings) {
           const parsedSettings = JSON.parse(settings);
           Object.assign(userSettings, parsedSettings);
           const lastReset = userSettings.lastNuxReset || 'Never';
-          document.getElementById('lastNuxReset').textContent = lastReset;
+          const lastResetElement = document.getElementById('lastNuxReset');
+          if (lastResetElement) {
+            lastResetElement.textContent = lastReset;
+          }
           
           google.script.run
             .withSuccessHandler(function(isFirstTime) {
-              document.getElementById('firstTimeUserStatus').textContent = 
-                isFirstTime ? 'Yes' : 'No';
+              const statusElement = document.getElementById('firstTimeUserStatus');
+              if (statusElement) {
+                statusElement.textContent = isFirstTime ? 'Yes' : 'No';
+              }
             })
             .checkFirstTimeUser();
         }
@@ -2321,15 +2349,12 @@
       
       /**
        * Check if debug mode is enabled in user settings
-       * @returns {boolean} True if debug mode is enabled
+       * @return {boolean} True if debug mode is enabled
        */
       function isDebugMode() {
-        try {
-          return userSettings.showDebugTools === true;
-        } catch (e) {
-          console.error('Error checking debug mode:', e);
-          return false;
-        }
+        const debugSection = document.getElementById('debugSection');
+        const debugInfoPanel = document.getElementById('debugInfoPanel');
+        return userSettings.showDebugTools === true && debugSection !== null && debugInfoPanel !== null;
       }
       
       // Initialize debug mode and settings on load
