@@ -145,8 +145,33 @@
       .log-comment { color: #1a73e8; }
       .log-text { color: #666; }
       .log-state { color: #9334e6; }
+      .log-nux { color: #9c27b0; font-weight: bold; }
       
+      /* Debug info panel */
+      .debug-info-panel {
+        background: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 8px;
+        margin-bottom: 10px;
+        font-size: 12px;
+      }
+      
+      .debug-info-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 4px;
+      }
+      
+      .debug-info-label {
+        font-weight: bold;
+        color: #5f6368;
+      }
 
+      .debug-info-value {
+        font-family: 'Roboto Mono', monospace;
+      }
+      
       .progress-container {
         margin-top: 15px;
       }
@@ -900,6 +925,23 @@
       <button class="cancel-button" onclick="cancelProcessing()">Cancel</button>
     </div>
 
+    <!-- Debug Info Panel -->
+    <div id="debugInfoPanel" class="debug-info-panel" style="display: none;">
+      <div class="debug-info-row">
+        <span class="debug-info-label">Last NUX Reset:</span>
+        <span class="debug-info-value" id="lastNuxReset">Never</span>
+      </div>
+      <div class="debug-info-row">
+        <span class="debug-info-label">First Time User:</span>
+        <span class="debug-info-value" id="firstTimeUserStatus">Unknown</span>
+      </div>
+    </div>
+    
+    <!-- Debug Logs -->
+    <div id="debugLogsContainer">
+      <pre id="debugLogs" class="unified-logs"></pre>
+    </div>
+
     <script>
       // Global state
       let commentsList = [];
@@ -1581,6 +1623,12 @@
           });
         }
         
+        // Set up save settings button
+        const saveSettingsButton = document.getElementById('saveSettings');
+        if (saveSettingsButton) {
+          saveSettingsButton.addEventListener('click', saveSettings);
+        }
+        
         // Add event listeners for debug buttons
         const refreshLogsButton = document.getElementById('refreshLogsButton');
         if (refreshLogsButton) {
@@ -1815,6 +1863,7 @@
         // Update settings object
         userSettings.timeout = timeoutValue * 1000; // Convert to milliseconds
         userSettings.showDebugTools = showDebugTools;
+        userSettings.lastUpdate = new Date().toISOString();
         
         // Save settings
         google.script.run
@@ -1823,12 +1872,24 @@
             const originalText = saveButton.textContent;
             saveButton.textContent = 'Saved ✓';
             
+            // Update debug info if visible
+            if (showDebugTools) {
+              document.getElementById('settingsDebugInfo').style.display = 'block';
+              document.getElementById('lastSettingsUpdate').textContent = 
+                new Date().toLocaleString();
+              document.getElementById('currentModelDisplay').textContent = 
+                selectedModel || 'None';
+            }
+            
             // Apply settings immediately
             toggleDebugSection(showDebugTools);
             
             setTimeout(() => {
               saveButton.textContent = originalText;
             }, 2000);
+            
+            // Log the settings update
+            google.script.run.logDebug('state', 'Settings updated', userSettings);
           })
           .withFailureHandler(function(error) {
             alert('Failed to save settings: ' + error);
@@ -1851,9 +1912,13 @@
             debugToggle.checked = show;
           }
           
-          // If showing debug section, make sure it's visible (scroll to it)
+          // If showing debug section, refresh logs and scroll to it
           if (show) {
-            debugSection.scrollIntoView({ behavior: 'smooth' });
+            // Add a small delay to ensure the UI has updated
+            setTimeout(() => {
+              refreshDebugLogs();
+              debugSection.scrollIntoView({ behavior: 'smooth' });
+            }, 100);
           }
         }
       }
@@ -2021,6 +2086,17 @@
                           dataStr = `\n  → ${JSON.stringify(entry.data, null, 2).replace(/\n/g, '\n  ')}`;
                         }
                         
+                        // Add CSS class for formatting based on category
+                        let categoryClass = '';
+                        switch (entry.category) {
+                          case 'error': categoryClass = 'log-error'; break;
+                          case 'debug': categoryClass = 'log-debug'; break;
+                          case 'comment': categoryClass = 'log-comment'; break;
+                          case 'text': categoryClass = 'log-text'; break;
+                          case 'state': categoryClass = 'log-state'; break;
+                          default: categoryClass = '';
+                        }
+                        
                         return `[${timestamp}] [${category}] ${message}${dataStr}`;
                       }
                       return line;
@@ -2033,14 +2109,19 @@
                 
                 logsTextarea.value = processedLogs || 'No logs available';
                 
+                // Log to console for debugging
+                console.log('Loaded logs, characters:', processedLogs.length);
+                
                 // Scroll to bottom
                 logsTextarea.scrollTop = logsTextarea.scrollHeight;
               } catch (error) {
                 logsTextarea.value = 'Error processing logs: ' + error + '\n\nRaw logs:\n' + logs;
+                console.error('Error processing logs:', error);
               }
             })
             .withFailureHandler(function(error) {
               logsTextarea.value = 'Failed to fetch logs: ' + error;
+              console.error('Failed to fetch logs:', error);
             })
             .getDebugLogs();
         } else {
@@ -2121,6 +2202,122 @@
             .testProcessFirstComment(); // Call a server-side function
         }
       }
+
+      // Format debug logs with category-based styling
+      function formatDebugLogs(logs) {
+        if (!logs) return '';
+        
+        return logs.split('\n').map(line => {
+          try {
+            const logEntry = JSON.parse(line);
+            const timestamp = new Date(logEntry.timestamp).toLocaleTimeString();
+            const category = logEntry.category || 'text';
+            const message = logEntry.message || '';
+            
+            // Add category-specific styling
+            const categoryClass = `log-${category.toLowerCase()}`;
+            
+            // Special formatting for NUX-related logs
+            if (message.includes('NUX') || message.includes('first time user')) {
+              return `<span class="log-nux">[${timestamp}] ${message}</span>`;
+            }
+            
+            return `<span class="${categoryClass}">[${timestamp}] ${message}</span>`;
+          } catch (e) {
+            return `<span class="log-text">${line}</span>`;
+          }
+        }).join('\n');
+      }
+      
+      // Update debug info panel
+      function updateDebugInfo() {
+        google.script.run
+          .withSuccessHandler(function(settings) {
+            try {
+              const userSettings = JSON.parse(settings);
+              const lastReset = userSettings.lastNuxReset || 'Never';
+              document.getElementById('lastNuxReset').textContent = lastReset;
+              
+              google.script.run
+                .withSuccessHandler(function(isFirstTime) {
+                  document.getElementById('firstTimeUserStatus').textContent = 
+                    isFirstTime ? 'Yes' : 'No';
+                })
+                .checkFirstTimeUser();
+            } catch (e) {
+              console.error('Error updating debug info:', e);
+            }
+          })
+          .getUserSettings();
+      }
+      
+      // Update debug logs with formatting
+      function updateDebugLogs() {
+        google.script.run
+          .withSuccessHandler(function(logs) {
+            const formattedLogs = formatDebugLogs(logs);
+            const logsElement = document.getElementById('debugLogs');
+            logsElement.innerHTML = formattedLogs;
+            
+            // Auto-scroll to bottom
+            logsElement.scrollTop = logsElement.scrollHeight;
+          })
+          .getDebugLogs();
+      }
+      
+      // Show debug info panel in debug mode
+      if (isDebugMode()) {
+        document.getElementById('debugInfoPanel').style.display = 'block';
+        updateDebugInfo();
+      }
+      
+      // Update logs periodically
+      setInterval(updateDebugLogs, 5000);
+      
+      // Initialize the Getting Started section
+      function initGettingStarted() {
+        const section = document.getElementById('getting-started-section');
+        const header = document.getElementById('getting-started-header');
+        
+        if (section && header) {
+          // Track when user expands/collapses the section
+          header.addEventListener('click', () => {
+            const isExpanding = !header.classList.contains('active');
+            google.script.run
+              .withSuccessHandler(() => {
+                console.log('Logged Getting Started interaction');
+              })
+              .logDebug('nux', isExpanding ? 'Getting Started section expanded' : 'Getting Started section collapsed');
+          });
+          
+          // Track when user interacts with help content
+          const helpSteps = section.querySelectorAll('.help-step');
+          helpSteps.forEach((step, index) => {
+            step.addEventListener('click', () => {
+              google.script.run
+                .withSuccessHandler(() => {
+                  console.log('Logged help step interaction');
+                })
+                .logDebug('nux', `User clicked help step ${index + 1}`);
+            });
+          });
+          
+          // Track when user interacts with tips
+          const helpTips = section.querySelectorAll('.help-tip');
+          helpTips.forEach((tip, index) => {
+            tip.addEventListener('click', () => {
+              google.script.run
+                .withSuccessHandler(() => {
+                  console.log('Logged help tip interaction');
+                })
+                .logDebug('nux', `User clicked help tip ${index + 1}`);
+            });
+          });
+        }
+      }
+      
+      // Call initGettingStarted after DOM is loaded
+      document.addEventListener('DOMContentLoaded', initGettingStarted);
     </script>
   </body>
 </html>

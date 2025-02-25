@@ -14,7 +14,8 @@ const LOG_CONFIG = {
     TEXT: 'text',
     ERROR: 'error',
     DEBUG: 'debug',
-    STATE: 'state'
+    STATE: 'state',
+    NUX: 'nux'
   },
   MAX_LOG_SIZE: 50000 // Maximum number of characters to keep in log
 };
@@ -40,19 +41,51 @@ function logDebug(category, message, data = null) {
     return JSON.stringify(obj, (key, value) => {
       if (typeof value === 'object' && value !== null) {
         if (seen.has(value)) {
-          return '[Circular]';
+          return '[Circular Reference]';
         }
         seen.add(value);
-      }
-      // Truncate long strings
-      if (typeof value === 'string' && value.length > 500) {
-        return value.substring(0, 500) + '...[truncated]';
       }
       return value;
     }, 2);
   };
 
-  Logger.log(safeStringify(logEntry));
+  // Create the log string
+  let logString;
+  try {
+    logString = safeStringify(logEntry);
+  } catch (e) {
+    // If JSON stringification fails, create a simpler log
+    logString = JSON.stringify({
+      timestamp: logEntry.timestamp,
+      category: logEntry.category,
+      message: logEntry.message,
+      error: "Failed to stringify data: " + e.message
+    });
+  }
+
+  // Log to Logger service (for sidebar display)
+  Logger.log(logString);
+  
+  // Also log to console for debugging in script editor
+  console.log(logString);
+  
+  // Trim logs if they get too long
+  try {
+    const logs = Logger.getLog();
+    if (logs && logs.length > LOG_CONFIG.MAX_LOG_SIZE) {
+      // Clear the log and add a truncation message
+      Logger.clear();
+      Logger.log(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        category: LOG_CONFIG.CATEGORIES.DEBUG,
+        message: "Logs were truncated due to size limit"
+      }));
+      // Re-add the current log entry
+      Logger.log(logString);
+    }
+  } catch (e) {
+    console.error("Error managing log size:", e);
+  }
 }
 
 
@@ -594,7 +627,7 @@ function verifyTextLocation(fileId, commentId, originalText) {
     // Multiple matches - try to find the best one using context
     const quotedContext = comment.quotedFileContent.value;
     let bestMatch = null;
-    let bestScore = -1;
+    let bestScore = 0;
     
     for (const match of foundElements) {
       const elementText = match.element.getText();
@@ -604,7 +637,7 @@ function verifyTextLocation(fileId, commentId, originalText) {
       
       const contextSimilarity = calculateSimilarity(context, quotedContext);
       
-      if (contextSimilarity > bestScore) {
+      if (contextSimilarity > bestScore && contextSimilarity > 0.7) {
         bestScore = contextSimilarity;
         bestMatch = match;
       }
@@ -1904,8 +1937,8 @@ function saveModelPreference(modelName) {
 }
 
 /**
- * Get debug logs from the server
- * @returns {string} - JSON string of recent logs
+ * Gets the debug logs for display in the sidebar
+ * @return {string} The debug logs as a string
  */
 function getDebugLogs() {
   try {
@@ -1913,17 +1946,17 @@ function getDebugLogs() {
     const logs = Logger.getLog();
     
     // Log that we're retrieving logs (meta-logging)
-    logDebug(LOG_CONFIG.CATEGORIES.DEBUG, "Retrieving debug logs", { 
-      logSize: logs ? logs.length : 0 
-    });
+    console.log("Retrieving debug logs, size: " + (logs ? logs.length : 0));
     
-    return logs || "No logs available";
+    // If no logs, return a message
+    if (!logs || logs.trim() === "") {
+      return "No logs available";
+    }
+    
+    return logs;
   } catch (error) {
-    logDebug(LOG_CONFIG.CATEGORIES.ERROR, "Error retrieving debug logs", { error: error.toString() });
-    return JSON.stringify({
-      error: "Failed to retrieve logs: " + error.message,
-      timestamp: new Date().toISOString()
-    });
+    console.error("Error retrieving debug logs:", error);
+    return "Error retrieving logs: " + error.message;
   }
 }
 
@@ -1995,12 +2028,18 @@ function checkFirstTimeUser() {
     const userProperties = PropertiesService.getUserProperties();
     const hasSeenIntro = userProperties.getProperty('hasSeenIntro');
     
+    logDebug(LOG_CONFIG.CATEGORIES.STATE, 'Checking first time user status', {
+      hasSeenIntro: hasSeenIntro ? 'true' : 'false'
+    });
+    
     if (!hasSeenIntro) {
       // Set the flag so they won't see the intro again
       userProperties.setProperty('hasSeenIntro', 'true');
+      logDebug(LOG_CONFIG.CATEGORIES.NUX, 'First time user detected - showing intro');
       return true;
     }
     
+    logDebug(LOG_CONFIG.CATEGORIES.NUX, 'Returning user detected');
     return false;
   } catch (error) {
     logDebug(LOG_CONFIG.CATEGORIES.ERROR, 'Error checking first time user status', {error: error.toString()});
@@ -2015,13 +2054,31 @@ function checkFirstTimeUser() {
  */
 function resetUserExperience() {
   try {
+    logDebug(LOG_CONFIG.CATEGORIES.NUX, 'Starting NUX reset');
+    
     const userProperties = PropertiesService.getUserProperties();
+    const oldSettings = userProperties.getProperties();
+    
+    // Log current settings before deletion
+    logDebug(LOG_CONFIG.CATEGORIES.STATE, 'Current settings before reset', oldSettings);
+    
+    // Delete all properties
     userProperties.deleteAllProperties();
     
-    logDebug(LOG_CONFIG.CATEGORIES.DEBUG, 'Reset user experience - all properties deleted');
+    // Set reset timestamp
+    const resetTime = new Date().toISOString();
+    userProperties.setProperty('lastNuxReset', resetTime);
+    
+    logDebug(LOG_CONFIG.CATEGORIES.NUX, 'NUX reset completed successfully', {
+      resetTime: resetTime
+    });
+    
     return true;
   } catch (error) {
-    logDebug(LOG_CONFIG.CATEGORIES.ERROR, 'Error resetting user experience', {error: error.toString()});
+    logDebug(LOG_CONFIG.CATEGORIES.ERROR, 'Error resetting user experience', {
+      error: error.toString(),
+      stack: error.stack
+    });
     return false;
   }
 }
