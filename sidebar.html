@@ -961,10 +961,12 @@
       const TIMEOUT_MS = 300000; // 300 second timeout (5 minutes)
       
       // Initialize settings
-      let userSettings = {
+      const userSettings = {
+        timeout: TIMEOUT_MS || 30000,
         showDebugTools: false,
-        timeout: TIMEOUT_MS,
-        geminiApiKey: ''
+        selectedModel: null,
+        lastUpdate: null,
+        lastNuxReset: null
       };
       
       // Define the prompt library with default prompts
@@ -1565,7 +1567,7 @@
               if (settings) {
                 try {
                   const parsedSettings = JSON.parse(settings);
-                  userSettings = Object.assign(userSettings, parsedSettings);
+                  Object.assign(userSettings, parsedSettings);
                   
                   // Apply loaded settings
                   const timeoutInput = document.getElementById('timeoutSetting');
@@ -1879,6 +1881,9 @@
                 new Date().toLocaleString();
               document.getElementById('currentModelDisplay').textContent = 
                 selectedModel || 'None';
+            } else {
+              document.getElementById('settingsDebugInfo').style.display = 'none';
+              document.getElementById('debugInfoPanel').style.display = 'none';
             }
             
             // Apply settings immediately
@@ -2230,25 +2235,20 @@
       }
       
       // Update debug info panel
-      function updateDebugInfo() {
-        google.script.run
-          .withSuccessHandler(function(settings) {
-            try {
-              const userSettings = JSON.parse(settings);
-              const lastReset = userSettings.lastNuxReset || 'Never';
-              document.getElementById('lastNuxReset').textContent = lastReset;
-              
-              google.script.run
-                .withSuccessHandler(function(isFirstTime) {
-                  document.getElementById('firstTimeUserStatus').textContent = 
-                    isFirstTime ? 'Yes' : 'No';
-                })
-                .checkFirstTimeUser();
-            } catch (e) {
-              console.error('Error updating debug info:', e);
-            }
-          })
-          .getUserSettings();
+      function updateDebugInfo(settings) {
+        if (settings) {
+          const parsedSettings = JSON.parse(settings);
+          Object.assign(userSettings, parsedSettings);
+          const lastReset = userSettings.lastNuxReset || 'Never';
+          document.getElementById('lastNuxReset').textContent = lastReset;
+          
+          google.script.run
+            .withSuccessHandler(function(isFirstTime) {
+              document.getElementById('firstTimeUserStatus').textContent = 
+                isFirstTime ? 'Yes' : 'No';
+            })
+            .checkFirstTimeUser();
+        }
       }
       
       // Update debug logs with formatting
@@ -2318,6 +2318,36 @@
       
       // Call initGettingStarted after DOM is loaded
       document.addEventListener('DOMContentLoaded', initGettingStarted);
+      
+      /**
+       * Check if debug mode is enabled in user settings
+       * @returns {boolean} True if debug mode is enabled
+       */
+      function isDebugMode() {
+        try {
+          return userSettings.showDebugTools === true;
+        } catch (e) {
+          console.error('Error checking debug mode:', e);
+          return false;
+        }
+      }
+      
+      // Initialize debug mode and settings on load
+      google.script.run
+        .withSuccessHandler(function(settings) {
+          try {
+            Object.assign(userSettings, JSON.parse(settings));
+            // Show/hide debug elements based on settings
+            if (isDebugMode()) {
+              document.getElementById('debugInfoPanel').style.display = 'block';
+              document.getElementById('settingsDebugInfo').style.display = 'block';
+              updateDebugInfo();
+            }
+          } catch (e) {
+            console.error('Error initializing debug mode:', e);
+          }
+        })
+        .getUserSettings();
     </script>
   </body>
 </html>
